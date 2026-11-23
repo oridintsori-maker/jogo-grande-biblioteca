@@ -1,0 +1,14 @@
+{
+  "name": "expedicao-grande-biblioteca",
+  "version": "3.0.0",
+  "description": "Expedição da Grande Biblioteca — jogo em HTML com multiplayer online por código de sala",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
