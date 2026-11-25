@@ -1,10 +1,11 @@
 'use strict';
 /*
- * Servidor multiplayer — Aurora Tri (Capítulo 1 e Arena de treino)
+ * Servidor multiplayer — Aurora Tri (Capítulo 1, Capítulo 2 e Arena de treino)
  * ------------------------------------------------------
  * - Entrega o jogo (index.html), as músicas da pasta musica/ (se existirem) e um canal WebSocket em /ws.
- * - Administra salas de até 3 jogadores identificadas por um código de 5 caracteres.
- * - O 3º jogador pode entrar no meio da partida quando o anfitrião libera (porta entre salas / biblioteca).
+ * - Administra salas identificadas por um código de 5 caracteres: até 5 computadores e até 5 jogadores no total
+ *   (cada computador pode trazer jogadores locais com controles; cada jogador ocupa uma "vaga" J1..J5).
+ * - Um computador novo pode entrar no meio da partida quando o anfitrião libera (porta entre salas / biblioteca).
  * - O anfitrião (J1) simula a partida; o servidor apenas organiza as salas e retransmite as mensagens.
  * - Trata desconexões com prazo de reconexão, sala vazia, sala cheia, código inválido e limpeza de salas.
  * Sem dependências: só precisa do Node.js 18 ou mais novo.  Uso:  node server.js   (porta padrão 8080)
@@ -27,9 +28,10 @@ const ROOM_MAX_AGE_MS = 6 * 60 * 60 * 1000;                  // salas são encer
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';         // sem 0/O e 1/I para evitar confusão
 const CHARS = new Set(['zane', 'viajante', 'deus', 'taka', 'clarice']);
 const STORY_CHARS = new Set(['zane', 'viajante', 'deus']); // Capítulo 1 (Taka e Clarice jogam na Arena de treino)
-const MODES = new Set(['story', 'arena']);
+const MODES = new Set(['story', 'arena', 'cap2']);
 const CHAR_ORDER = ['zane', 'viajante', 'deus'];
-const MAX_PLAYERS = 3;
+const MAX_PLAYERS = 5;   // computadores na sala
+const MAX_SEATS = 5;     // jogadores no total (somando os locais de cada computador)
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
 const rooms = new Map();
@@ -195,21 +197,33 @@ function makeCode() {
   return null;
 }
 function lobbyState(room, you) {
-  return { t: 'lobby', room: room.code, phase: room.phase, you, mode: room.mode || 'story',
-    players: roomPlayers(room).map(p => ({ slot: p.slot, char: p.char, ready: p.ready, connected: p.connected })) };
+  return { t: 'lobby', room: room.code, phase: room.phase, you, mode: room.mode || 'story', maxSeats: MAX_SEATS,
+    players: roomPlayers(room).map(p => ({ slot: p.slot, char: p.char, locals: p.locals, ready: p.ready, connected: p.connected })) };
 }
 function broadcastLobby(room) { for (const p of roomPlayers(room)) if (p.connected) p.ws.send(lobbyState(room, p.slot)); }
 function others(room, slot, msg) { const s = typeof msg === 'string' ? msg : JSON.stringify(msg); for (const p of roomPlayers(room)) if (p.slot !== slot && p.connected) p.ws.send(s); }
-const playerList = room => roomPlayers(room).map(p => ({ slot: p.slot, char: p.char }));
+// Vagas (J1..J5): cada computador ocupa uma vaga pelo jogador do teclado (l = 0) e mais uma por controle (l = 1..4).
+// Na partida, slot = número da vaga (é o "controle" do personagem no jogo) e conn = o computador dono dela.
+const seatCount = room => roomPlayers(room).reduce((n, p) => n + 1 + p.locals.length, 0);
+function buildSeats(room) {
+  const seats = []; let n = 0;
+  for (const p of roomPlayers(room).sort((a, b) => a.slot - b.slot)) {
+    seats.push({ slot: n++, char: p.char, conn: p.slot, l: 0 });
+    for (const L of p.locals) seats.push({ slot: n++, char: L.char, conn: p.slot, l: L.l });
+  }
+  return seats;
+}
+const playerList = room => room.seats && room.phase === 'game' ? room.seats : buildSeats(room);
 
-// Cada personagem só pode ser escolhido por um jogador da sala.
-const charTaken = (room, ch, except) => roomPlayers(room).some(p => p.slot !== except && p.char === ch);
+// Cada personagem só pode ser escolhido por um jogador da sala (contando os locais de todos os computadores).
+const charTaken = (room, ch, except, exceptLocal) => roomPlayers(room).some(p =>
+  (p.slot !== except && p.char === ch) || p.locals.some(L => L.char === ch && !(p.slot === except && exceptLocal)));
 function freeChar(room, want, except) {
-  if (CHARS.has(want) && !charTaken(room, want, except)) return want;
-  return CHAR_ORDER.find(ch => !charTaken(room, ch, except)) || 'zane';
+  if (CHARS.has(want) && !charTaken(room, want, except, true)) return want;
+  return CHAR_ORDER.concat(['taka', 'clarice']).find(ch => !charTaken(room, ch, except, true)) || 'zane';
 }
 function addPlayer(room, slot, ws, char) {
-  room.players[slot] = { slot, ws, token: newToken(), char: freeChar(room, char, slot), ready: false, connected: true, timer: null };
+  room.players[slot] = { slot, ws, token: newToken(), char: freeChar(room, char, slot), locals: [], ready: false, connected: true, timer: null };
   ws.client.room = room; ws.client.slot = slot; room.active = Date.now();
 }
 function removePlayer(room, slot, reason) {
@@ -225,6 +239,7 @@ function removePlayer(room, slot, reason) {
     room.phase = 'lobby'; room.joinable = false; for (const q of roomPlayers(room)) q.ready = false;
     for (const q of roomPlayers(room)) if (q.connected) q.ws.send({ t: 'to_lobby', reason: q === o ? 'host_left' : 'host_changed' });
   } else if (room.phase === 'game') {
+    if (room.seats) room.seats = room.seats.filter(s => s.conn !== slot);
     others(room, slot, { t: 'peer_gone', slot });
   }
   broadcastLobby(room);
@@ -275,15 +290,18 @@ function handle(ws, m) {
         const idx = r.players.findIndex(p => p && !p.connected);
         if (idx > 0) { removePlayer(r, idx, 'replaced'); slot = r.players.findIndex(p => !p); }
       }
-      if (slot < 0) { ws.send({ t: 'error', code: 'full' }); return; }
+      if (slot < 0 || seatCount(r) >= MAX_SEATS) { ws.send({ t: 'error', code: 'full' }); return; }
       leaveCurrent(ws, 'leave');
       if (!rooms.has(code)) { ws.send({ t: 'error', code: 'not_found' }); return; }
       addPlayer(r, slot, ws, m.char);
       const np = r.players[slot];
       if (r.phase === 'game') {
         np.ready = true;
+        const used = new Set(r.seats.map(s => s.slot)); let seat = 0; while (used.has(seat)) seat++;
+        if (seat >= MAX_SEATS) { removePlayer(r, slot, 'full'); ws.send({ t: 'error', code: 'full' }); return; }
+        r.seats.push({ slot: seat, char: np.char, conn: slot, l: 0 });
         ws.send({ t: 'joined', room: code, slot, token: np.token, phase: 'game', mode: r.mode, players: playerList(r) });
-        others(r, slot, { t: 'peer_joined', slot, char: np.char });
+        others(r, slot, { t: 'peer_joined', slot, seat, char: np.char, players: playerList(r) });
       } else ws.send({ t: 'joined', room: code, slot, token: np.token });
       broadcastLobby(r); log('entrou', code, 'J' + (slot + 1), r.phase === 'game' ? '(no meio da partida)' : '');
       return;
@@ -317,6 +335,22 @@ function handle(ws, m) {
       if (charTaken(room, m.char, me.slot)) { ws.send({ t: 'error', code: 'char_taken' }); broadcastLobby(room); return; }
       me.char = m.char; broadcastLobby(room); return;
 
+    case 'locals': {  // jogadores extras deste computador (controles): [{l, char}]
+      if (!me || room.phase !== 'lobby' || !Array.isArray(m.list)) return;
+      const want = m.list.slice(0, 4).filter(L => L && Number.isInteger(L.l) && L.l >= 1 && L.l <= 4);
+      me.locals = []; let refused = false;
+      for (const L of want) {
+        if (seatCount(room) >= MAX_SEATS) { refused = true; break; }
+        if (me.locals.some(q => q.l === L.l)) continue;
+        let ch = CHARS.has(L.char) && L.char !== me.char && !charTaken(room, L.char, me.slot, false) && !me.locals.some(q => q.char === L.char) ? L.char : null;
+        if (!ch) ch = ['zane', 'viajante', 'deus', 'taka', 'clarice'].find(k => k !== me.char && !charTaken(room, k, me.slot, false) && !me.locals.some(q => q.char === k));
+        if (!ch) { refused = true; break; }
+        me.locals.push({ l: L.l, char: ch });
+      }
+      if (refused) ws.send({ t: 'error', code: 'seats_full' });
+      broadcastLobby(room); return;
+    }
+
     case 'mode':  // o anfitrião escolhe o modo na sala de espera: Capítulo 1 ou Arena de treino
       if (!me || c.slot !== 0 || room.phase !== 'lobby' || !MODES.has(m.v)) return;
       room.mode = m.v; broadcastLobby(room); return;
@@ -334,8 +368,9 @@ function handle(ws, m) {
       if (c.slot !== 0) { ws.send({ t: 'error', code: 'not_host' }); return; }
       const ps = roomPlayers(room);
       if (room.phase !== 'lobby' || ps.length < 2 || !ps.every(p => p.connected && p.ready)) { ws.send({ t: 'error', code: 'not_ready' }); return; }
-      if ((room.mode || 'story') === 'story' && ps.some(p => !STORY_CHARS.has(p.char))) { ws.send({ t: 'error', code: 'story_chars' }); return; }
+      if ((room.mode || 'story') === 'story' && ps.some(p => !STORY_CHARS.has(p.char) || p.locals.some(L => !STORY_CHARS.has(L.char)))) { ws.send({ t: 'error', code: 'story_chars' }); return; }
       room.phase = 'game'; room.active = Date.now(); room.joinable = false;
+      room.seats = buildSeats(room);
       const list = playerList(room);
       for (const p of ps) p.ws.send({ t: 'start', mode: room.mode || 'story', players: list });
       broadcastLobby(room); log('partida iniciada', room.code, list.map(p => p.char).join(' + '));
