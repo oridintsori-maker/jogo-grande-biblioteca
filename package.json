@@ -1,7 +1,7 @@
 {
-  "name": "expedicao-grande-biblioteca",
-  "version": "3.0.0",
-  "description": "Expedição da Grande Biblioteca — jogo em HTML com multiplayer online por código de sala",
+  "name": "aurora-tri",
+  "version": "13.0.0",
+  "description": "Aurora Tri — jogo em HTML (Capítulo 1 e Arena de treino) com multiplayer online por código de sala",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

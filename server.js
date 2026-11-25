@@ -1,9 +1,10 @@
 'use strict';
 /*
- * Servidor multiplayer — Expedição da Grande Biblioteca
+ * Servidor multiplayer — Aurora Tri (Capítulo 1 e Arena de treino)
  * ------------------------------------------------------
- * - Entrega o jogo (index.html) e um canal WebSocket em /ws.
- * - Administra salas de 2 jogadores identificadas por um código de 5 caracteres.
+ * - Entrega o jogo (index.html), as músicas da pasta musica/ (se existirem) e um canal WebSocket em /ws.
+ * - Administra salas de até 3 jogadores identificadas por um código de 5 caracteres.
+ * - O 3º jogador pode entrar no meio da partida quando o anfitrião libera (porta entre salas / biblioteca).
  * - O anfitrião (J1) simula a partida; o servidor apenas organiza as salas e retransmite as mensagens.
  * - Trata desconexões com prazo de reconexão, sala vazia, sala cheia, código inválido e limpeza de salas.
  * Sem dependências: só precisa do Node.js 18 ou mais novo.  Uso:  node server.js   (porta padrão 8080)
@@ -16,13 +17,19 @@ const crypto = require('crypto');
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
 const GAME_FILE = process.env.GAME_FILE || path.join(__dirname, 'index.html');
+const MUSIC_DIR = path.join(__dirname, 'musica');
+const AUDIO_TYPES = { '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.wav': 'audio/wav' };
 const GRACE_MS = Number(process.env.GRACE_MS) || 30000;      // tempo para um jogador reconectar
 const MAX_ROOMS = Number(process.env.MAX_ROOMS) || 500;
 const MAX_MSG = 256 * 1024;                                  // tamanho máximo de uma mensagem
 const MAX_MSGS_PER_SEC = 300;
 const ROOM_MAX_AGE_MS = 6 * 60 * 60 * 1000;                  // salas são encerradas após 6 h
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';         // sem 0/O e 1/I para evitar confusão
-const CHARS = new Set(['zane', 'viajante']);
+const CHARS = new Set(['zane', 'viajante', 'deus', 'taka', 'clarice']);
+const STORY_CHARS = new Set(['zane', 'viajante', 'deus']); // Capítulo 1 (Taka e Clarice jogam na Arena de treino)
+const MODES = new Set(['story', 'arena']);
+const CHAR_ORDER = ['zane', 'viajante', 'deus'];
+const MAX_PLAYERS = 3;
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
 const rooms = new Map();
@@ -108,7 +115,31 @@ class WSConn {
   }
 }
 
-// ------------------------------------------------------------------ HTTP: jogo + /health
+// Músicas: só arquivos com nome simples dentro de musica/ (sem subpastas), com suporte a Range
+// (o navegador pede pedaços do arquivo para tocar e repetir a faixa).
+function serveMusic(req, res, name) {
+  const ext = path.extname(name).toLowerCase();
+  if (!/^[a-z0-9_-]+\.(mp3|ogg|m4a|wav)$/i.test(name) || !AUDIO_TYPES[ext]) { res.writeHead(404); res.end(); return; }
+  const file = path.join(MUSIC_DIR, name);
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Música não encontrada'); return; }
+    const head = { 'Content-Type': AUDIO_TYPES[ext], 'Accept-Ranges': 'bytes', 'Cache-Control': 'public, max-age=3600' };
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    let start = 0, end = st.size - 1, code = 200;
+    if (m && (m[1] || m[2])) {
+      if (m[1]) { start = Number(m[1]); if (m[2]) end = Math.min(Number(m[2]), st.size - 1); }
+      else { start = Math.max(0, st.size - Number(m[2])); }
+      if (start > end || start >= st.size) { res.writeHead(416, { 'Content-Range': 'bytes */' + st.size }); res.end(); return; }
+      code = 206; head['Content-Range'] = 'bytes ' + start + '-' + end + '/' + st.size;
+    }
+    head['Content-Length'] = end - start + 1;
+    res.writeHead(code, head);
+    if (req.method === 'HEAD') { res.end(); return; }
+    fs.createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res);
+  });
+}
+
+// ------------------------------------------------------------------ HTTP: jogo + músicas + /health
 const server = http.createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
@@ -128,6 +159,15 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
+  if (url === '/musica/lista.json') { // lista das faixas disponíveis: o jogo só pede o que existe
+    fs.readdir(MUSIC_DIR, (err, names) => {
+      const list = err ? [] : names.filter(n => /^[a-z0-9_-]+\.(mp3|ogg|m4a|wav)$/i.test(n));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(list));
+    });
+    return;
+  }
+  if (url.startsWith('/musica/')) { let n = ''; try { n = decodeURIComponent(url.slice(8)); } catch (e) {} serveMusic(req, res, n); return; }
   res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Não encontrado');
 });
 
@@ -155,15 +195,21 @@ function makeCode() {
   return null;
 }
 function lobbyState(room, you) {
-  return { t: 'lobby', room: room.code, phase: room.phase, you,
+  return { t: 'lobby', room: room.code, phase: room.phase, you, mode: room.mode || 'story',
     players: roomPlayers(room).map(p => ({ slot: p.slot, char: p.char, ready: p.ready, connected: p.connected })) };
 }
 function broadcastLobby(room) { for (const p of roomPlayers(room)) if (p.connected) p.ws.send(lobbyState(room, p.slot)); }
 function others(room, slot, msg) { const s = typeof msg === 'string' ? msg : JSON.stringify(msg); for (const p of roomPlayers(room)) if (p.slot !== slot && p.connected) p.ws.send(s); }
 const playerList = room => roomPlayers(room).map(p => ({ slot: p.slot, char: p.char }));
 
+// Cada personagem só pode ser escolhido por um jogador da sala.
+const charTaken = (room, ch, except) => roomPlayers(room).some(p => p.slot !== except && p.char === ch);
+function freeChar(room, want, except) {
+  if (CHARS.has(want) && !charTaken(room, want, except)) return want;
+  return CHAR_ORDER.find(ch => !charTaken(room, ch, except)) || 'zane';
+}
 function addPlayer(room, slot, ws, char) {
-  room.players[slot] = { slot, ws, token: newToken(), char: CHARS.has(char) ? char : 'zane', ready: false, connected: true, timer: null };
+  room.players[slot] = { slot, ws, token: newToken(), char: freeChar(room, char, slot), ready: false, connected: true, timer: null };
   ws.client.room = room; ws.client.slot = slot; room.active = Date.now();
 }
 function removePlayer(room, slot, reason) {
@@ -172,11 +218,12 @@ function removePlayer(room, slot, reason) {
   if (p.ws && p.ws.client && p.ws.client.room === room) { p.ws.client.room = null; p.ws.client.slot = -1; }
   if (roomPlayers(room).length === 0) { rooms.delete(room.code); log('sala encerrada', room.code, '(' + reason + ')'); return; }
   if (slot === 0) {
-    // O anfitrião saiu de vez: o outro jogador assume como anfitrião e a sala volta para a espera.
-    const o = room.players[1]; room.players[1] = null; o.slot = 0; room.players[0] = o;
+    // O anfitrião saiu de vez: o próximo jogador assume como anfitrião e a sala volta para a espera.
+    const idx = room.players.findIndex(p => p);
+    const o = room.players[idx]; room.players[idx] = null; o.slot = 0; room.players[0] = o;
     if (o.ws && o.ws.client && o.ws.client.room === room) o.ws.client.slot = 0;
-    room.phase = 'lobby'; for (const q of roomPlayers(room)) q.ready = false;
-    if (o.connected) o.ws.send({ t: 'to_lobby', reason: 'host_left' });
+    room.phase = 'lobby'; room.joinable = false; for (const q of roomPlayers(room)) q.ready = false;
+    for (const q of roomPlayers(room)) if (q.connected) q.ws.send({ t: 'to_lobby', reason: q === o ? 'host_left' : 'host_changed' });
   } else if (room.phase === 'game') {
     others(room, slot, { t: 'peer_gone', slot });
   }
@@ -208,7 +255,7 @@ function handle(ws, m) {
       leaveCurrent(ws, 'leave');
       if (rooms.size >= MAX_ROOMS) { ws.send({ t: 'error', code: 'server_full' }); return; }
       const code = makeCode(); if (!code) { ws.send({ t: 'error', code: 'server_full' }); return; }
-      const r = { code, phase: 'lobby', players: [null, null], created: Date.now(), active: Date.now() };
+      const r = { code, phase: 'lobby', mode: 'story', players: new Array(MAX_PLAYERS).fill(null), created: Date.now(), active: Date.now(), joinable: false };
       rooms.set(code, r); addPlayer(r, 0, ws, m.char);
       ws.send({ t: 'created', room: code, slot: 0, token: r.players[0].token });
       broadcastLobby(r); log('sala criada', code);
@@ -221,9 +268,10 @@ function handle(ws, m) {
       const r = rooms.get(code);
       if (!r) { ws.send({ t: 'error', code: 'not_found' }); return; }
       if (room === r) { ws.send({ t: 'joined', room: code, slot: c.slot, token: me.token }); broadcastLobby(r); return; }
-      if (r.phase === 'game') { ws.send({ t: 'error', code: 'in_game' }); return; }
+      // Durante a partida só dá para entrar quando o anfitrião libera (transição entre salas).
+      if (r.phase === 'game' && !r.joinable) { ws.send({ t: 'error', code: 'in_game' }); return; }
       let slot = r.players.findIndex(p => !p);
-      if (slot < 0) {  // na sala de espera, a vaga de quem caiu pode ser ocupada por outra pessoa
+      if (slot < 0 && r.phase === 'lobby') {  // na sala de espera, a vaga de quem caiu pode ser ocupada por outra pessoa
         const idx = r.players.findIndex(p => p && !p.connected);
         if (idx > 0) { removePlayer(r, idx, 'replaced'); slot = r.players.findIndex(p => !p); }
       }
@@ -231,8 +279,13 @@ function handle(ws, m) {
       leaveCurrent(ws, 'leave');
       if (!rooms.has(code)) { ws.send({ t: 'error', code: 'not_found' }); return; }
       addPlayer(r, slot, ws, m.char);
-      ws.send({ t: 'joined', room: code, slot, token: r.players[slot].token });
-      broadcastLobby(r); log('entrou', code, 'J' + (slot + 1));
+      const np = r.players[slot];
+      if (r.phase === 'game') {
+        np.ready = true;
+        ws.send({ t: 'joined', room: code, slot, token: np.token, phase: 'game', mode: r.mode, players: playerList(r) });
+        others(r, slot, { t: 'peer_joined', slot, char: np.char });
+      } else ws.send({ t: 'joined', room: code, slot, token: np.token });
+      broadcastLobby(r); log('entrou', code, 'J' + (slot + 1), r.phase === 'game' ? '(no meio da partida)' : '');
       return;
     }
 
@@ -248,11 +301,11 @@ function handle(ws, m) {
       if (old && old !== ws) { try { old.client.room = null; old.close(4000); } catch (e) { /* ignora */ } }
       if (r.phase === 'game' && p.slot === 0 && !m.hasGame) {
         // O anfitrião recarregou a página e perdeu a simulação: a sala volta para a espera.
-        r.phase = 'lobby'; for (const q of roomPlayers(r)) q.ready = false;
+        r.phase = 'lobby'; r.joinable = false; for (const q of roomPlayers(r)) q.ready = false;
         ws.send({ t: 'resumed', room: code, slot: p.slot, phase: 'lobby', players: playerList(r) });
         others(r, 0, { t: 'to_lobby', reason: 'host_reload' });
       } else {
-        ws.send({ t: 'resumed', room: code, slot: p.slot, phase: r.phase, players: playerList(r) });
+        ws.send({ t: 'resumed', room: code, slot: p.slot, phase: r.phase, mode: r.mode, players: playerList(r) });
         others(r, p.slot, { t: 'peer_back', slot: p.slot });
       }
       broadcastLobby(r); log('reconectou', code, 'J' + (p.slot + 1));
@@ -261,7 +314,16 @@ function handle(ws, m) {
 
     case 'char':
       if (!me || room.phase !== 'lobby' || !CHARS.has(m.char)) return;
+      if (charTaken(room, m.char, me.slot)) { ws.send({ t: 'error', code: 'char_taken' }); broadcastLobby(room); return; }
       me.char = m.char; broadcastLobby(room); return;
+
+    case 'mode':  // o anfitrião escolhe o modo na sala de espera: Capítulo 1 ou Arena de treino
+      if (!me || c.slot !== 0 || room.phase !== 'lobby' || !MODES.has(m.v)) return;
+      room.mode = m.v; broadcastLobby(room); return;
+
+    case 'joinable':  // o anfitrião libera/fecha a entrada no meio da partida
+      if (!me || c.slot !== 0 || room.phase !== 'game') return;
+      room.joinable = !!m.v; return;
 
     case 'ready':
       if (!me || room.phase !== 'lobby') return;
@@ -271,17 +333,18 @@ function handle(ws, m) {
       if (!me) return;
       if (c.slot !== 0) { ws.send({ t: 'error', code: 'not_host' }); return; }
       const ps = roomPlayers(room);
-      if (room.phase !== 'lobby' || ps.length !== 2 || !ps.every(p => p.connected && p.ready)) { ws.send({ t: 'error', code: 'not_ready' }); return; }
-      room.phase = 'game'; room.active = Date.now();
+      if (room.phase !== 'lobby' || ps.length < 2 || !ps.every(p => p.connected && p.ready)) { ws.send({ t: 'error', code: 'not_ready' }); return; }
+      if ((room.mode || 'story') === 'story' && ps.some(p => !STORY_CHARS.has(p.char))) { ws.send({ t: 'error', code: 'story_chars' }); return; }
+      room.phase = 'game'; room.active = Date.now(); room.joinable = false;
       const list = playerList(room);
-      for (const p of ps) p.ws.send({ t: 'start', players: list });
+      for (const p of ps) p.ws.send({ t: 'start', mode: room.mode || 'story', players: list });
       broadcastLobby(room); log('partida iniciada', room.code, list.map(p => p.char).join(' + '));
       return;
     }
 
     case 'lobby_return':
       if (!me || c.slot !== 0 || room.phase !== 'game') return;
-      room.phase = 'lobby'; for (const p of roomPlayers(room)) p.ready = false;
+      room.phase = 'lobby'; room.joinable = false; for (const p of roomPlayers(room)) p.ready = false;
       for (const p of roomPlayers(room)) if (p.connected) p.ws.send({ t: 'to_lobby', reason: 'host' });
       broadcastLobby(room); return;
 
@@ -327,6 +390,6 @@ setInterval(() => {
 }, 60000).unref();
 
 server.listen(PORT, HOST, () => {
-  log('Expedição da Grande Biblioteca — servidor em http://localhost:' + PORT + '  (WebSocket em /ws)');
+  log('Aurora Tri — servidor em http://localhost:' + PORT + '  (WebSocket em /ws)');
 });
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { log('encerrando…'); server.close(); process.exit(0); });
