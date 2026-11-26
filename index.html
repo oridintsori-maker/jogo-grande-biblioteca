@@ -473,6 +473,7 @@ function speedMod(p){const c=p.combat;let m;
 function moveLocal(p,dt){
  const c=p.combat,[mx,my]=!canAct(p)?[0,0]:p.ctrl<0&&p.ai?[p.ai.mx,p.ai.my]:p===me?inputVector():p.ctrl>=0&&!p.remote?padVector(p):[0,0],len=Math.hypot(mx,my)||1;
  if(!(p.ai&&p.ctrl<0&&p.ai.aimT>0))updateFacing(p,mx,my,len,dt); // a máquina mantém a mira enquanto ataca
+ if(p.padAim&&p.ctrl>=0&&!p.remote&&canAct(p)){const[ax,ay]=p.padAim,al=Math.hypot(ax,ay);if(al>.4){p.faceX=ax/al;p.faceY=ay/al;p.aimGrace=.25;}} // analógico direito: mira
  if(p.push){p.x+=p.push.vx*dt;p.y+=p.push.vy*dt;p.push.t-=dt;if(p.push.t<=0)p.push=null;}
  if(p.char==='viajante'&&c.travel){/* a travessia controla a posição */}
  else if(p.char==='zane'&&c.meta&&metaMove(p,dt)){/* bote, investida ou dissolver */}
@@ -5240,14 +5241,20 @@ function pollGamepad(){
  else if(state==='scene'||state==='fin'){if(edge(0))sceneInput('next');else if(edge(2))sceneInput('pick',0);else if(edge(3))sceneInput('pick',1);else if(edge(1))sceneInput('pick',2);else if(edge(9))act('pause');}
  else if(!playing()){if(edge(9)||edge(0))tapStart();}
  else{
+   // layout de controle (padrão de jogos de ação): X/RT atacar · A esquivar (ou usar, se houver algo perto) · Y trocar/habilidade · B recarregar/habilidade
+   // LB especial · RB poder furtivo · L3 agachar · Select mochila · Start pausa · analógico direito mira
    if(ui.metaPick>0){if(edge(2))act('ult',{form:'tigre'});else if(edge(3))act('ult',{form:'mamute'});else if(edge(1))act('ult',{form:'aguia'});}
-   else{if(edge(9))act('pause');if(edge(8))swapInput();if(!me&&edge(0))specSpeed();if(me&&isExplore()){if(edge(0))act('use');if(edge(1))act('crouch',{v:me.crouch?0:1});if(edge(2))act('power');}if(edge(5))pressHold('x','switch');if(edge(6))act('dodge');if(edge(3))pressHold('r','reload');if(edge(4))act('ult');}
-   if(!pressed(5)&&ui.prevButtons[5])releaseHold('x');if(!pressed(3)&&ui.prevButtons[3])releaseHold('r');
-   if(pressed(7)){if(me&&!me.combat.held)act('atkDown',{src:'gamepad'});}else if(me&&me.combat.source==='gamepad')act('atkUp',{src:'gamepad'});
+   else{if(edge(9))act('pause');if(edge(8)){if(room===3)swapInput();else if(typeof itemsOpen==='function'&&itemsOpen())closeItems();else openItems();}if(!me&&edge(0))specSpeed();
+    if(me){const ex=isExplore();if(edge(0)||edge(6)){if(edge(0)&&ex&&nearestUse(me))act('use');else act('dodge');}
+     if(ex){if(edge(10))act('crouch',{v:me.crouch?0:1});if(edge(5))act('power');}else if(edge(5))pressHold('x','switch');
+     if(edge(3))pressHold('x','switch');if(edge(1))pressHold('r','reload');if(edge(4))act('ult');}}
+   if(!pressed(3)&&!pressed(5)&&(ui.prevButtons[3]||ui.prevButtons[5]))releaseHold('x');if(!pressed(1)&&ui.prevButtons[1])releaseHold('r');
+   if(me)me.padAim=[gp.axes?.[2]||0,gp.axes?.[3]||0];
+   if(pressed(7)||pressed(2)){if(me&&!me.combat.held)act('atkDown',{src:'gamepad'});}else if(me&&me.combat.source==='gamepad')act('atkUp',{src:'gamepad'});
  }
  ui.prevButtons=b.map(v=>!!(v&&(v.pressed||v.value>.55)));
 }
-window.addEventListener('gamepadconnected',()=>ui.gamepad=true);
+window.addEventListener('gamepadconnected',()=>{ui.gamepad=true;notice('Controle conectado — X atacar · A esquivar/usar · Y trocar · B recarregar · LB especial · Start pausa',6,'pad');});
 window.addEventListener('gamepaddisconnected',()=>{ui.gamepad=false;for(const k of Object.keys(padMove))padMove[k]=false;syncMovement();if(me&&me.combat.source==='gamepad')act('atkUp',{src:'gamepad'});});
 // ===== MULTIPLAYER ONLINE =====
 // Arquitetura: o servidor administra as salas e retransmite mensagens. O anfitrião (J1) simula a partida
@@ -5954,9 +5961,13 @@ function pollLocalPads(){
    if(state==='scene'||state==='fin'){if(edge(0))sceneInput('next');else if(edge(9))act('pause');}
    else if(!playing()){if(edge(9)||edge(0))tapStart();}
    else if(P){
-    if(edge(9))act('pause',{},P);if(isExplore()){if(edge(0))act('use',{},P);if(edge(1))act('crouch',{v:P.crouch?0:1},P);if(edge(2))act('power',{},P);}if(edge(5))pressHold('x','switch',P);if(edge(6))act('dodge',{},P);if(edge(3))pressHold('r','reload',P);if(edge(4))act('ult',{},P);
-    if(!pr(5)&&prev[5])releaseHold('x',P);if(!pr(3)&&prev[3])releaseHold('r',P);
-    if(pr(7)){if(!P.combat.held)act('atkDown',{src:'gamepad'},P);}else if(P.combat.source==='gamepad')act('atkUp',{src:'gamepad'},P);
+    const ex=isExplore();if(edge(9))act('pause',{},P);if(edge(8)&&room!==3){if(itemsOpen())closeItems();else openItems();}
+    if(edge(0)||edge(6)){if(edge(0)&&ex&&nearestUse(P))act('use',{},P);else act('dodge',{},P);}
+    if(ex){if(edge(10))act('crouch',{v:P.crouch?0:1},P);if(edge(5))act('power',{},P);}else if(edge(5))pressHold('x','switch',P);
+    if(edge(3))pressHold('x','switch',P);if(edge(1))pressHold('r','reload',P);if(edge(4))act('ult',{},P);
+    if(!pr(3)&&!pr(5)&&(prev[3]||prev[5]))releaseHold('x',P);if(!pr(1)&&prev[1])releaseHold('r',P);
+    P.padAim=[gp.axes?.[2]||0,gp.axes?.[3]||0];
+    if(pr(7)||pr(2)){if(!P.combat.held)act('atkDown',{src:'gamepad'},P);}else if(P.combat.source==='gamepad')act('atkUp',{src:'gamepad'},P);
    }else if(edge(9))act('pause');
   }
   const nb=b.map(v=>!!(v&&(v.pressed||v.value>.55)));nb.sx=sx;LOCAL.prev[i]=nb;}
@@ -6469,7 +6480,7 @@ function drawCityGuard(e){const G=e.g||{ang:0,aw:0,st:'patrol'};ctx.save();ctx.t
 function drawExploreWorld(){ // por cima do chão: aviso de interação perto do jogador deste computador e jogadores escondidos
  if(!isExplore()||state!=='play')return;
  for(const p of(VIEWER?[VIEWER]:localHumans())){const U=nearestUse(p);if(!U||!p.alive)continue;const o=U.o,x=o.x,y=(o.y||0)-(U.k==='castelo'?60:34);
-  ctx.save();ctx.textAlign='center';ctx.font='bold 11px system-ui';const key=p===me?(TOUCH?'USAR':'E'):'A',txt=key+' · '+U.lab,w=ctx.measureText(txt).width+14;
+  ctx.save();ctx.textAlign='center';ctx.font='bold 11px system-ui';const key=p===me?(TOUCH?'USAR':ui.gamepad?'A':'E'):'A',txt=key+' · '+U.lab,w=ctx.measureText(txt).width+14;
   ctx.fillStyle='rgba(12,9,15,.82)';ctx.fillRect(x-w/2,y-14,w,19);ctx.strokeStyle='#ffd36b';ctx.strokeRect(x-w/2+.5,y-13.5,w-1,18);ctx.fillStyle='#ffe7b0';ctx.fillText(txt,x,y);ctx.restore();}
 }
 function playerStealthAlpha(p){if(p.hideIn)return 0;if(p.sk&&p.sk.k==='fumaca')return .35;if(p.sk&&p.sk.k==='camaleao')return(p._mvS||0)>.25?.3:.14;return 1;}
@@ -6527,7 +6538,11 @@ function drawRoadCap2(){ // Cap. 2: trilha lateral até o Campo Laranja e placas
 let cityUiSig='';
 function cityDomUI(){const on=isExplore()&&playing()&&!ui.menuOpen,sig=on+'|'+!!(me&&me.crouch)+'|'+(me&&me.char);if(sig===cityUiSig)return;cityUiSig=sig;
  const b=document.getElementById('touchCity');if(b)b.classList.toggle('on',on);const s=document.getElementById('tSneak');if(s)s.classList.toggle('active',!!(me&&me.crouch));
- const h=document.getElementById('hint');if(h){const base=(typeof HINTS!=='undefined'&&me&&HINTS[me.char])||'';h.textContent=on?'WASD mover · Z atacar · X trocar · C esquivar · F especial · E usar · Shift agachar · V poder · I mochila · Esc pausar':base;}}
+ const h=document.getElementById('hint');if(h){const base=(typeof HINTS!=='undefined'&&me&&HINTS[me.char])||'';h.textContent=ui.gamepad?padHint(base,on):on?'WASD mover · Z atacar · X trocar · C esquivar · F especial · E usar · Shift agachar · V poder · I mochila · Esc pausar':base;}}
+// troca as teclas da dica pelos botões do controle
+const PADKEY={Z:'X/RT',X:'Y',R:'B',C:'A',F:'LB',Q:'Select',Esc:'Start','WASD/Setas':'LS'};
+function padHint(base,ex){const out=[];for(const seg of base.split(' · ')){const m=seg.match(/^(\S+)\s+(.*)$/);if(!m){out.push(seg);continue;}if(m[1]==='T'||m[1]==='Enter'||m[1]==='N')continue;out.push((PADKEY[m[1]]||m[1])+' '+m[2]);}
+ if(ex)out.push('A usar (perto de algo)','L3 agachar','RB poder','Select mochila');else out.push('RS mirar');return out.join(' · ');}
 
 // ---------- tela dividida (multiplayer local): divide quando os jogadores deste computador se afastam ----------
 const SPLIT={on:false};let splitCv=null,splitCtx=null;
@@ -6731,7 +6746,9 @@ const MOCHILA_TABS={
    row('Tela dividida','Multiplayer local: divide a tela quando os jogadores se afastam',chk(!SPLIT.off,v=>{SPLIT.off=!v;lsSet('egb_split',v?'1':'0');}));
    row('Mapinha da cidade','Canto superior direito, em Elden',chk(!ui.noMap,v=>{ui.noMap=!v;lsSet('egb_map',v?'1':'0');}));}
   else{const add=(a,b)=>{const d=document.createElement('div');d.className='mv';const x=document.createElement('b');x.textContent=a;d.append(x,document.createTextNode(b));body.appendChild(d);};
-   add('Controle','RT atacar · RB trocar · LT esquivar · Y recarregar · LB especial · A usar · B agachar · X poder · Start pausa');
+   add('Controle','Analógico esquerdo mover · analógico direito mirar · X ou RT atacar (segure: golpe carregado) · A ou LT esquivar · Y trocar arma / habilidade · B recarregar / habilidade · LB especial · Start pausa');
+   add('Cap. 2','A usar quando aparece o aviso perto de algo (baú, barril, morador, porta) · L3 (apertar o analógico) agachar · RB poder furtivo · Select mochila');
+   add('Metamorfose','Ao escolher a forma: X tigre · Y mamute · B águia (na posição dos botões)');
    add('Vários controles','Na escolha de personagem ou na sala online: A entra, ◀ ▶ troca o personagem, B sai');
    add('Celular','Joystick à esquerda; botões à direita. Na exploração aparecem USAR, AGACHAR e PODER. 🎒 abre a mochila sem pausar.');}}
  window.openCfg=function(){who=me?me.char:'zane';render();el.classList.add('on');};
