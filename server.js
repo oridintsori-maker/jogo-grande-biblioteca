@@ -188,6 +188,7 @@ server.on('upgrade', (req, socket, head) => {
 
 // ------------------------------------------------------------------ Salas
 const roomPlayers = room => room.players.filter(Boolean);
+const gamers = room => roomPlayers(room).filter(p => !p.dev); // o desenvolvedor só assiste: não ocupa vaga nem personagem
 const newToken = () => crypto.randomBytes(16).toString('hex');
 function makeCode() {
   for (let tries = 0; tries < 2000; tries++) {
@@ -198,16 +199,16 @@ function makeCode() {
 }
 function lobbyState(room, you) {
   return { t: 'lobby', room: room.code, phase: room.phase, you, mode: room.mode || 'story', maxSeats: MAX_SEATS,
-    players: roomPlayers(room).map(p => ({ slot: p.slot, char: p.char, locals: p.locals, ready: p.ready, connected: p.connected })) };
+    players: roomPlayers(room).map(p => ({ slot: p.slot, char: p.char, locals: p.locals, ready: p.ready, connected: p.connected, dev: p.dev ? 1 : 0 })) };
 }
 function broadcastLobby(room) { for (const p of roomPlayers(room)) if (p.connected) p.ws.send(lobbyState(room, p.slot)); }
 function others(room, slot, msg) { const s = typeof msg === 'string' ? msg : JSON.stringify(msg); for (const p of roomPlayers(room)) if (p.slot !== slot && p.connected) p.ws.send(s); }
 // Vagas (J1..J5): cada computador ocupa uma vaga pelo jogador do teclado (l = 0) e mais uma por controle (l = 1..4).
 // Na partida, slot = número da vaga (é o "controle" do personagem no jogo) e conn = o computador dono dela.
-const seatCount = room => roomPlayers(room).reduce((n, p) => n + 1 + p.locals.length, 0);
+const seatCount = room => gamers(room).reduce((n, p) => n + 1 + p.locals.length, 0);
 function buildSeats(room) {
   const seats = []; let n = 0;
-  for (const p of roomPlayers(room).sort((a, b) => a.slot - b.slot)) {
+  for (const p of gamers(room).sort((a, b) => a.slot - b.slot)) {
     seats.push({ slot: n++, char: p.char, conn: p.slot, l: 0 });
     for (const L of p.locals) seats.push({ slot: n++, char: L.char, conn: p.slot, l: L.l });
   }
@@ -216,7 +217,7 @@ function buildSeats(room) {
 const playerList = room => room.seats && room.phase === 'game' ? room.seats : buildSeats(room);
 
 // Cada personagem só pode ser escolhido por um jogador da sala (contando os locais de todos os computadores).
-const charTaken = (room, ch, except, exceptLocal) => roomPlayers(room).some(p =>
+const charTaken = (room, ch, except, exceptLocal) => gamers(room).some(p =>
   (p.slot !== except && p.char === ch) || p.locals.some(L => L.char === ch && !(p.slot === except && exceptLocal)));
 function freeChar(room, want, except) {
   if (CHARS.has(want) && !charTaken(room, want, except, true)) return want;
@@ -230,15 +231,15 @@ function removePlayer(room, slot, reason) {
   const p = room.players[slot]; if (!p) return;
   clearTimeout(p.timer); room.players[slot] = null;
   if (p.ws && p.ws.client && p.ws.client.room === room) { p.ws.client.room = null; p.ws.client.slot = -1; }
-  if (roomPlayers(room).length === 0) { rooms.delete(room.code); log('sala encerrada', room.code, '(' + reason + ')'); return; }
+  if (gamers(room).length === 0) { for (const q of roomPlayers(room)) { if (q.connected) q.ws.send({ t: 'error', code: 'not_found' }); room.players[q.slot] = null; } rooms.delete(room.code); log('sala encerrada', room.code, '(' + reason + ')'); return; }
   if (slot === 0) {
-    // O anfitrião saiu de vez: o próximo jogador assume como anfitrião e a sala volta para a espera.
-    const idx = room.players.findIndex(p => p);
+    // O anfitrião saiu de vez: o próximo jogador (nunca o desenvolvedor) assume como anfitrião e a sala volta para a espera.
+    const idx = room.players.findIndex(p => p && !p.dev);
     const o = room.players[idx]; room.players[idx] = null; o.slot = 0; room.players[0] = o;
     if (o.ws && o.ws.client && o.ws.client.room === room) o.ws.client.slot = 0;
     room.phase = 'lobby'; room.joinable = false; for (const q of roomPlayers(room)) q.ready = false;
     for (const q of roomPlayers(room)) if (q.connected) q.ws.send({ t: 'to_lobby', reason: q === o ? 'host_left' : 'host_changed' });
-  } else if (room.phase === 'game') {
+  } else if (room.phase === 'game' && !p.dev) {
     if (room.seats) room.seats = room.seats.filter(s => s.conn !== slot);
     others(room, slot, { t: 'peer_gone', slot });
   }
@@ -283,26 +284,32 @@ function handle(ws, m) {
       const r = rooms.get(code);
       if (!r) { ws.send({ t: 'error', code: 'not_found' }); return; }
       if (room === r) { ws.send({ t: 'joined', room: code, slot: c.slot, token: me.token }); broadcastLobby(r); return; }
-      // Durante a partida só dá para entrar quando o anfitrião libera (transição entre salas).
-      if (r.phase === 'game' && !r.joinable) { ws.send({ t: 'error', code: 'in_game' }); return; }
+      // Durante a partida só dá para entrar quando o anfitrião libera (transição entre salas). O modo desenvolvedor entra a qualquer hora, só para assistir.
+      const dev = !!m.dev;
+      if (r.phase === 'game' && !r.joinable && !dev) { ws.send({ t: 'error', code: 'in_game' }); return; }
       let slot = r.players.findIndex(p => !p);
       if (slot < 0 && r.phase === 'lobby') {  // na sala de espera, a vaga de quem caiu pode ser ocupada por outra pessoa
         const idx = r.players.findIndex(p => p && !p.connected);
         if (idx > 0) { removePlayer(r, idx, 'replaced'); slot = r.players.findIndex(p => !p); }
       }
-      if (slot < 0 || seatCount(r) >= MAX_SEATS) { ws.send({ t: 'error', code: 'full' }); return; }
+      if (slot === 0 && dev) { ws.send({ t: 'error', code: 'not_found' }); return; }
+      if (slot < 0 || (!dev && seatCount(r) >= MAX_SEATS)) { ws.send({ t: 'error', code: 'full' }); return; }
       leaveCurrent(ws, 'leave');
       if (!rooms.has(code)) { ws.send({ t: 'error', code: 'not_found' }); return; }
       addPlayer(r, slot, ws, m.char);
       const np = r.players[slot];
-      if (r.phase === 'game') {
+      if (dev) { np.dev = true; np.ready = true; np.char = 'dev'; }
+      if (dev && r.phase === 'game') {
+        ws.send({ t: 'joined', room: code, slot, token: np.token, phase: 'game', mode: r.mode, players: playerList(r), dev: 1 });
+        others(r, slot, { t: 'peer_dev', slot });
+      } else if (r.phase === 'game') {
         np.ready = true;
         const used = new Set(r.seats.map(s => s.slot)); let seat = 0; while (used.has(seat)) seat++;
         if (seat >= MAX_SEATS) { removePlayer(r, slot, 'full'); ws.send({ t: 'error', code: 'full' }); return; }
         r.seats.push({ slot: seat, char: np.char, conn: slot, l: 0 });
         ws.send({ t: 'joined', room: code, slot, token: np.token, phase: 'game', mode: r.mode, players: playerList(r) });
         others(r, slot, { t: 'peer_joined', slot, seat, char: np.char, players: playerList(r) });
-      } else ws.send({ t: 'joined', room: code, slot, token: np.token });
+      } else ws.send({ t: 'joined', room: code, slot, token: np.token, dev: dev ? 1 : 0 });
       broadcastLobby(r); log('entrou', code, 'J' + (slot + 1), r.phase === 'game' ? '(no meio da partida)' : '');
       return;
     }
@@ -324,19 +331,19 @@ function handle(ws, m) {
         others(r, 0, { t: 'to_lobby', reason: 'host_reload' });
       } else {
         ws.send({ t: 'resumed', room: code, slot: p.slot, phase: r.phase, mode: r.mode, players: playerList(r) });
-        others(r, p.slot, { t: 'peer_back', slot: p.slot });
+        if (!p.dev) others(r, p.slot, { t: 'peer_back', slot: p.slot });
       }
       broadcastLobby(r); log('reconectou', code, 'J' + (p.slot + 1));
       return;
     }
 
     case 'char':
-      if (!me || room.phase !== 'lobby' || !CHARS.has(m.char)) return;
+      if (!me || me.dev || room.phase !== 'lobby' || !CHARS.has(m.char)) return;
       if (charTaken(room, m.char, me.slot)) { ws.send({ t: 'error', code: 'char_taken' }); broadcastLobby(room); return; }
       me.char = m.char; broadcastLobby(room); return;
 
     case 'locals': {  // jogadores extras deste computador (controles): [{l, char}]
-      if (!me || room.phase !== 'lobby' || !Array.isArray(m.list)) return;
+      if (!me || me.dev || room.phase !== 'lobby' || !Array.isArray(m.list)) return;
       const want = m.list.slice(0, 4).filter(L => L && Number.isInteger(L.l) && L.l >= 1 && L.l <= 4);
       me.locals = []; let refused = false;
       for (const L of want) {
@@ -361,18 +368,18 @@ function handle(ws, m) {
 
     case 'ready':
       if (!me || room.phase !== 'lobby') return;
-      me.ready = !!m.v; broadcastLobby(room); return;
+      me.ready = !!m.v || !!me.dev; broadcastLobby(room); return;
 
     case 'start': {
       if (!me) return;
       if (c.slot !== 0) { ws.send({ t: 'error', code: 'not_host' }); return; }
-      const ps = roomPlayers(room);
+      const ps = gamers(room);
       if (room.phase !== 'lobby' || ps.length < 2 || !ps.every(p => p.connected && p.ready)) { ws.send({ t: 'error', code: 'not_ready' }); return; }
       if ((room.mode || 'story') === 'story' && ps.some(p => !STORY_CHARS.has(p.char) || p.locals.some(L => !STORY_CHARS.has(L.char)))) { ws.send({ t: 'error', code: 'story_chars' }); return; }
       room.phase = 'game'; room.active = Date.now(); room.joinable = false;
       room.seats = buildSeats(room);
       const list = playerList(room);
-      for (const p of ps) p.ws.send({ t: 'start', mode: room.mode || 'story', players: list });
+      for (const p of roomPlayers(room)) if (p.connected) p.ws.send({ t: 'start', mode: room.mode || 'story', players: list, dev: p.dev ? 1 : 0 });  // quem só assiste (desenvolvedor) também recebe
       broadcastLobby(room); log('partida iniciada', room.code, list.map(p => p.char).join(' + '));
       return;
     }
@@ -388,7 +395,7 @@ function handle(ws, m) {
     case 'g':  // mensagens da partida: retransmitidas ao outro jogador da sala
       if (!me || room.phase !== 'game') return;
       room.active = Date.now();
-      others(room, c.slot, '{"t":"g","from":' + c.slot + ',"d":' + JSON.stringify(m.d === undefined ? null : m.d) + '}');
+      others(room, c.slot, '{"t":"g","from":' + c.slot + (me.dev ? ',"dev":1' : '') + ',"d":' + JSON.stringify(m.d === undefined ? null : m.d) + '}');
       return;
 
     default: ws.send({ t: 'error', code: 'bad_request' });
@@ -400,7 +407,7 @@ function onSocketClose(ws) {
   const room = c.room, p = room.players[c.slot];
   if (!p || p.ws !== ws) return;
   p.connected = false;
-  others(room, p.slot, { t: 'peer_left', slot: p.slot });
+  if (!p.dev) others(room, p.slot, { t: 'peer_left', slot: p.slot });
   broadcastLobby(room);
   log('desconectou', room.code, 'J' + (p.slot + 1), '— aguardando reconexão');
   // Mantém a vaga por um tempo; depois disso o jogador é removido (e a sala, se ficar vazia).

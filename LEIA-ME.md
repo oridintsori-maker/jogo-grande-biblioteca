@@ -1,3 +1,109 @@
+# Aurora Tri — v16.4 — MODO DESENVOLVEDOR E CORREÇÃO DOS OSSOS NO LOCAL
+
+> **Desta vez mudaram dois arquivos: `index.html` e `server.js`.** Suba os dois no GitHub para o Render publicar. Sem o server.js novo, o botão de assistir como desenvolvedor dá erro de sala cheia ou de partida em andamento.
+
+## Correção: ossos na biblioteca (multiplayer local)
+- **Antes:** com dois jogadores no mesmo PC, J1 e J2 viam só os ossos do J1 (do personagem principal). O Guevar do J2 não achava os ossos dele e o grupo ficava preso.
+- **Agora:** cada dono de osso que joga neste computador enxerga os seus. Com a tela dividida, cada metade mostra só os ossos do próprio jogador.
+- A mesma correção vale para os reflexos dos espelhos, que só o Guevar percebe.
+
+## Modo desenvolvedor
+**Como ligar:** abra o terminal da Ordem (digite ORDEM, ou segure ou toque o título no celular) e digite `dev`. O mesmo comando desliga. Há também um botão DEV entre os atalhos do terminal no celular.
+
+### Entrar numa sala online só para assistir
+- No Multiplayer, digite o código da sala e toque em **ASSISTIR COMO DESENVOLVEDOR**. O botão só aparece com o modo ligado.
+- Dá para entrar a qualquer momento, inclusive no meio da partida.
+- O desenvolvedor **não ocupa vaga nem personagem** e não conta nos 5 jogadores.
+- Na sala de espera, ele aparece como "DEV · ASSISTINDO".
+- Quando ele entra, o anfitrião vê o aviso "Um desenvolvedor entrou na sala". Quando ele sai, ninguém recebe aviso de jogador desconectado.
+- Comandos de jogo enviados pelo desenvolvedor são ignorados pelo anfitrião. Ele só consegue usar o painel.
+
+### O painel DEV (canto inferior esquerdo; no celular, canto superior direito)
+| Linha | O que faz |
+|---|---|
+| **CENA** | ◀ Fala volta uma fala · Fala ▶ avança · ⏭ Pular cena pula a cena inteira, a conversa andando, o ritual ou o confronto |
+| **PARTE** | ⏮ e ⏭ vão para a parte anterior ou a próxima. A lista tem as 19 partes dos dois capítulos. "Ir para a parte escolhida" leva até ela e "Reiniciar parte" recomeça a atual |
+| **CÂMERA** | Auto, seguir qualquer personagem (jogador ou IA) ou Livre. Zoom − e +. "Trazer grupo p/ câmera" leva todos até o centro da sua câmera |
+| **GRUPO** | Curar · Limpar inimigos · Chefe 10% · Alarme off (cidade) · Pausar/Despausar |
+
+- Os comandos valem **para a sala inteira**. Quem executa é o anfitrião, e todos veem um aviso curto, por exemplo "Desenvolvedor pulou a cena".
+- **A câmera só muda a tela do desenvolvedor.**
+- Ir do Capítulo 1 para o 2, ou voltar, monta o grupo certo. Cada jogador continua com o próprio personagem.
+- **Teclas de quem assiste:**
+  - N ou Enter: próxima fala; B: volta uma fala; K: pula a cena.
+  - [ e ]: parte anterior e próxima.
+  - 0: câmera auto; 1 a 5: seguir um personagem; L ou WASD: câmera livre; + e −: zoom.
+  - H: recolhe o painel; Esc: pausa.
+- **No celular:** em câmera livre, arraste a tela. Jogando, o painel começa recolhido para não cobrir o joystick.
+- O painel também funciona no solo e para o anfitrião, quando o modo está ligado.
+
+## Avisos
+- Ajustei a coluna do comando `elden` na ajuda do terminal. Ela estava desalinhada desde a troca de nome.
+- Atualizei um teste antigo que esperava a mochila pausar. Ela abre sem pausar desde a v16.1.
+
+---
+
+# Aurora Tri — v16.3 — CONTROLES DE CONTROLE MAIS INTUITIVOS
+
+O controle segue o padrão dos jogos de ação (vale para todos os controles, inclusive J2 a J5 no mesmo PC):
+
+| Botão | Ação |
+|---|---|
+| Analógico esquerdo | mover |
+| **Analógico direito** | **mirar** (novo) |
+| **X** ou RT | atacar (segure para o golpe carregado) |
+| **A** ou LT | esquivar. No Cap. 2, quando aparece o aviso perto de algo (baú, barril, morador, porta), o A usa |
+| **Y** | trocar arma / habilidade do X do teclado |
+| **B** | recarregar / habilidade do R do teclado (véu, escudo, crânios, cura) |
+| LB | especial |
+| RB | poder furtivo (Cap. 2); fora da exploração, também troca |
+| **L3** (apertar o analógico) | agachar (Cap. 2) |
+| **Select** | mochila (sem pausar); na biblioteca continua trocando de personagem |
+| Start | pausa |
+| Metamorfose | X tigre · Y mamute · B águia (na posição dos botões) |
+
+- A dica de controles embaixo da tela mostra os botões do controle quando há um ligado.
+- O aviso de "usar" mostra **A**.
+- Ao conectar um controle aparece um resumo rápido.
+- O layout também está em Pausa → Configurações → Controle e celular.
+
+Só o index.html mudou.
+
+---
+
+# Aurora Tri — v16.2 — ZANE ÁGUIA, CIDADE MAIS CALMA E HUD NOVO
+
+## Metamorfose do Zane: ÁGUIA (no lugar da "água", que foi um erro)
+- **Z:** garras rápidas.
+- **Segurar Z:** **mergulho**. A águia sobe e cai à frente, com dano em área e um atordoamento curto.
+- **X ou R:** **leque de penas cortantes** (5 penas).
+- **C:** **voo rasante** longo e invulnerável.
+- **Passivo:** anda 30% mais rápido.
+- Tecla 3, ou B no controle, na hora de escolher a forma.
+
+## Cidade mais calma
+- **Guardas:** 10 em vez de 16 (7 rondas mais espaçadas e 3 postos).
+- **Mais devagar:**
+  - os guardas andam e correm mais devagar e demoram mais para notar alguém;
+  - eles demoram mais para atacar;
+  - o alarme dura menos e só chama quem está por perto.
+- **Menos avisos:** sem textos ao entrar nas áreas nem de alarme (a faixa ALARME já mostra), e no máximo 2 avisos na tela ao mesmo tempo.
+
+## Personagens da máquina mais calmos (no jogo todo)
+- Andam um pouco mais devagar, mudam menos de lado e fazem uma pausa entre as decisões.
+- Só esquivam de perigo real.
+- Guardam o especial para lutas grandes (chefe ou muitos inimigos) e não o usam durante a exploração.
+- Na cidade, seguem de mais longe.
+
+## HUD
+- **Topo mais limpo:** capítulo em dourado e objetivo em itálico à esquerda; nome e vida à direita, com moldura dourada. Os botões de som e mochila não cobrem mais nada.
+- **Aliados:** viraram uma lista compacta embaixo do topo, com a bolsa e o mapinha logo abaixo e alinhados.
+- **Estética:** painéis de combate com moldura dourada e fundo vinho, no estilo das cenas.
+
+Só o index.html mudou.
+
+---
+
 # Aurora Tri — v16.1 — ELDEN, CIDADE EM PERSPECTIVA, HUD MAIS LIMPO E CONFIGURAÇÕES
 
 - **Nome:** "Alstrea" virou **Elden** em todo o jogo. O comando do terminal agora é `elden`; o antigo continua valendo.

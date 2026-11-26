@@ -143,6 +143,7 @@ details{margin-top:8px}details summary{cursor:pointer;color:#a99aa0;font-size:12
    <div class="divider">— OU ENTRE COM UM CÓDIGO —</div>
    <input class="code" id="codeInput" maxlength="12" placeholder="CÓDIGO" autocomplete="off" spellcheck="false" inputmode="text" autocapitalize="characters" enterkeyhint="go">
    <button class="btn" id="btnJoin" type="button">ENTRAR NA SALA</button>
+   <button class="btn ghost" id="btnJoinDev" type="button" style="display:none">ASSISTIR COMO DESENVOLVEDOR</button>
    <div class="err" id="multiErr"></div>
    <details id="srvBox"><summary>Endereço do servidor</summary>
     <input class="srv" id="serverInput" placeholder="ex.: meu-jogo.onrender.com" autocomplete="off" spellcheck="false">
@@ -160,7 +161,7 @@ details{margin-top:8px}details summary{cursor:pointer;color:#a99aa0;font-size:12
    <div class="row"><button class="btn mode" id="modeStory" type="button">CAPÍTULO 1</button><button class="btn mode" id="modeCap2" type="button">CAPÍTULO 2</button><button class="btn mode" id="modeArena" type="button">ARENA DE TREINO</button></div>
    <div class="label" id="slotsLabel">JOGADORES (0/2)</div>
    <div id="slots"></div>
-   <div class="label">SEU PERSONAGEM</div>
+   <div class="label" id="charsLobbyLabel">SEU PERSONAGEM</div>
    <div class="chars" id="charsLobby"></div>
    <div class="row"><button class="btn" id="btnReady" type="button">ESTOU PRONTO</button><button class="btn primary" id="btnStart" type="button" disabled>INICIAR PARTIDA</button></div>
    <div class="err" id="lobbyErr"></div>
@@ -280,7 +281,7 @@ const STORY_CHARS=['zane','viajante','deus'];
 // Depois da revelação no fim do Capítulo 1, o Viajante aparece sem capuz e é chamado de Guevar.
 const chapterDone=()=>lsGet('egb_cap1')==='1';
 // Terminal Póstumo (cheats de desenvolvedor): montalvo = Guevar sem capuz desde o início · imortal = sem dano no solo
-const DEV={montalvo:lsGet('egb_dev_montalvo')==='1',imortal:lsGet('egb_dev_imortal')==='1'};
+const DEV={montalvo:lsGet('egb_dev_montalvo')==='1',imortal:lsGet('egb_dev_imortal')==='1',dev:lsGet('egb_dev_dev')==='1'};
 const guevarFace=()=>DEV.montalvo||gameMode==='cap2'||!!(camp&&camp.revealed)||((gameMode==='arena'||state==='intro')&&chapterDone());
 const fullName=k=>k==='viajante'&&guevarFace()?'Guevar':CHARS[k].full;
 const charName=k=>k==='viajante'&&guevarFace()?'GUEVAR':CHARS[k].name;
@@ -1733,7 +1734,7 @@ const LIB_INTRO=['Acordaram. Ótimo. Esta é a Grande Biblioteca.',
 function say(lines){if(!lib)return;if(lib.talk)lib.talk.lines.push(...lines);else lib.talk={lines:lines.slice(),i:0,t:0};}
 const lineTime=s=>Math.max(3.2,s.length/17);
 function updateTalk(dt){const T=lib.talk;if(!T)return;T.t+=dt;if(T.t>lineTime(T.lines[T.i])){T.i++;T.t=0;if(T.i>=T.lines.length)lib.talk=null;}}
-const boneVisible=k=>!!me&&BONE_OWNER[k]===me.char; // só o dono enxerga os próprios ossos
+const boneVisible=k=>(VIEWER?[VIEWER]:localHumans()).some(p=>BONE_OWNER[k]===p.char)||(DEV.dev&&!me); // só o dono enxerga os próprios ossos (no local, todos os donos deste computador; o desenvolvedor assistindo vê tudo)
 const boneCount=(k,f)=>lib?lib.bones.filter(b=>b.kind===k&&b[f]).length:0;
 function boneSpot(b){const d=LIB.bones.find(q=>q.id===b.id);if(d.x!=null)return d;const s=LIB.mirrors.find(m=>m.id===d.src)||LIB.puddles.find(q=>q.id===d.src);return s;}
 function noticeAll(text,secs){notice(text,secs);fx(['N',text,secs]);}
@@ -1849,7 +1850,7 @@ function drawLibraryRoom(){
  drawLibMirrors();
 }
 function drawLibMirrors(){
- const seeing=me&&me.char==='viajante'; // Guevar percebe os reflexos (esquive contra o espelho para entrar)
+ const seeing=(VIEWER?[VIEWER]:localHumans()).some(p=>p.char==='viajante')||(DEV.dev&&!me); // Guevar percebe os reflexos (esquive contra o espelho para entrar)
  for(const m of LIB.mirrors){ctx.save();
   if(m.side==='top'){ctx.translate(m.x,m.y-46);ctx.fillStyle='#6b5232';ctx.fillRect(-26,-38,52,74);const gr=ctx.createLinearGradient(-20,-32,20,30);gr.addColorStop(0,'#2b3340');gr.addColorStop(.5,'#5b6878');gr.addColorStop(1,'#20262e');ctx.fillStyle=gr;ctx.fillRect(-20,-32,40,62);}
   else{const s=m.side==='left'?1:-1;ctx.translate(m.x+s*3,m.y);ctx.fillStyle='#6b5232';ctx.fillRect(-6,-38,12,76);const gr=ctx.createLinearGradient(0,-32,0,32);gr.addColorStop(0,'#2b3340');gr.addColorStop(.5,'#5b6878');gr.addColorStop(1,'#20262e');ctx.fillStyle=gr;ctx.fillRect(-4,-32,8,64);}
@@ -4307,6 +4308,7 @@ const cam={x:480,y:300,z:1,snap:0};
 function camFollow(){const L=localHumans().filter(q=>q.alive);if(L.length>1){const xs=L.map(q=>q.rx),ys=L.map(q=>q.ry);return[(Math.min(...xs)+Math.max(...xs))/2,(Math.min(...ys)+Math.max(...ys))/2];}const p=me||players.find(q=>q.ctrl>=0&&q.alive)||players.find(q=>q.alive)||players[0];return p?[p.rx,p.ry]:[WORLD.w/2,WORLD.h/2];}
 function clampCam(){const hw=W/2/cam.z,hh=H/2/cam.z;cam.x=WORLD.w<=hw*2?WORLD.w/2:clamp(cam.x,hw,WORLD.w-hw);cam.y=WORLD.h<=hh*2?WORLD.h/2:clamp(cam.y,hh,WORLD.h-hh);}
 function updateCamera(dt){
+ if(devCam(dt))return;
  if(finCam()){if(Math.abs(cam.x-480)>300||cam.z<1){cam.x=480;cam.y=262;cam.z=1.36;}const r=Math.min(1,dt*2.5);cam.z+=(1.36-cam.z)*r;cam.x+=(480-cam.x)*r;cam.y+=(262-cam.y)*r;clampCam();return;}
  if(!bigRoom()){cam.x=W/2;cam.y=H/2;cam.z=1;return;}
  let[tx,ty]=camFollow(),tz=1;
@@ -4770,7 +4772,7 @@ function drawNameTag(p){
 // ===== INTERFACE =====
 function bar(x,y,w,h,pct,color){ctx.fillStyle='#160f15';ctx.fillRect(x,y,w,h);ctx.fillStyle=color;ctx.fillRect(x+1,y+1,(w-2)*clamp(pct,0,1),h-2);}
 function drawUI(){
- const P=me||players[0];
+ const P=(devSpect()&&DEVCAM.mode==='seat'&&playerBySlot(DEVCAM.slot))||me||players[0];
  if(state==='intro'){drawAurora();return;}
  // ---- topo: capítulo e objetivo à esquerda, vida à direita; aliados compactos logo abaixo ----
  {const gr=ctx.createLinearGradient(0,0,0,48);gr.addColorStop(0,'rgba(22,11,16,.96)');gr.addColorStop(1,'rgba(22,11,16,.78)');ctx.fillStyle=gr;ctx.fillRect(0,0,W,48);
@@ -4821,7 +4823,8 @@ function drawUI(){
  if(room===7)drawKingHUD();
  drawSlotUI();
  // espectador: quem escolheu o Deus dos Justos assiste até a entidade se unir ao grupo
- if(playing()&&!me&&players.length&&room===4){ctx.save();ctx.textAlign='center';ctx.fillStyle='#0c090fd8';ctx.fillRect(300,60,360,26);ctx.font='bold 12px system-ui';ctx.fillStyle='#e9e0c8';ctx.fillText('ASSISTINDO — Zane e Guevar seguem pela estrada de ossos',480,77);ctx.restore();}
+ if(devSpect()){}
+ else if(playing()&&!me&&players.length&&room===4){ctx.save();ctx.textAlign='center';ctx.fillStyle='#0c090fd8';ctx.fillRect(300,60,360,26);ctx.font='bold 12px system-ui';ctx.fillStyle='#e9e0c8';ctx.fillText('ASSISTINDO — Zane e Guevar seguem pela estrada de ossos',480,77);ctx.restore();}
  else if(playing()&&!me&&players.length){ctx.save();ctx.textAlign='center';ctx.fillStyle='#0c090fd8';ctx.fillRect(250,60,460,40);ctx.strokeStyle='#ffd84a';ctx.strokeRect(250.5,60.5,459,39);
   ctx.font='bold 12px system-ui';ctx.fillStyle='#ffe9a8';ctx.fillText('ASSISTINDO — a entidade se une ao grupo depois da luta contra o "Deus" dos Justos',480,77);
   ctx.font='10px system-ui';ctx.fillStyle='#c8b9c0';ctx.fillText(net.role==='solo'?'As máquinas controlam Zane e o Viajante · T ou toque: velocidade x'+(ui.specSpeed||1):room===3?'Q: assumir um personagem livre':'Aguarde a cutscene para assumir a entidade',480,92);ctx.restore();}
@@ -5153,7 +5156,7 @@ function syncDomUI(dt){
  if(ui.roomCard>0)ui.roomCard=Math.max(0,ui.roomCard-dt);if(ui.bossCard>0)ui.bossCard=Math.max(0,ui.bossCard-dt);
  if(ui.metaPick>0){ui.metaPick=Math.max(0,ui.metaPick-dt);if(!me||!canAct(me)||me.combat.meta||me.combat.ultUsed)ui.metaPick=0;}
  syncWishDom();
- cityDomUI();touchSceneUI();bagSync();
+ cityDomUI();touchSceneUI();bagSync();devPanelSync();
  {const h=$('hint'),hide=state==='fin'?'hidden':'';if(h&&h.style.visibility!==hide)h.style.visibility=hide;} // sem a dica de controles por cima das cenas finais
  const c=me&&me.combat,vj=me&&me.char==='viajante',dz=me&&me.char==='deus',tk=me&&me.char==='taka',cl=me&&me.char==='clarice',mf=c&&c.meta&&c.meta.form,lib=room===3&&playing();
  if(ui.waveCard>0)ui.waveCard=Math.max(0,ui.waveCard-dt);
@@ -5177,6 +5180,7 @@ window.addEventListener('keydown',e=>{
  if(tag==='INPUT'||tag==='TEXTAREA'){if(e.key==='Enter'&&e.target.id==='codeInput'){e.preventDefault();joinRoom();}return;}
  const k=e.key.toLowerCase();
  if(ui.menuOpen){if(k==='enter'&&!e.repeat&&!(tag==='BUTTON')){e.preventDefault();menuPrimary();}return;}
+ if(devKey(e,true))return;
  // cutscene: avançar e escolher o desejo
  if(state==='scene'||state==='fin'){if(['z','enter',' '].includes(k)){e.preventDefault();if(!e.repeat)sceneInput('next');}else if(['1','2','3'].includes(k))sceneInput('pick',+k-1);else if(k==='escape')act('pause');return;}
  if(k==='q'&&!e.repeat){swapInput();return;}
@@ -5191,7 +5195,7 @@ window.addEventListener('keydown',e=>{
  if(k==='x'){pressHold('x','switch');return;}if(k==='r'){pressHold('r','reload');return;}if(k==='c'){act('dodge');return;}if(k==='f'){act('ult');return;}
  if(MOVE_KEYS.includes(k)){keyboardMove(k,true);return;}if(k==='z')act('atkDown',{src:'keyboard'});
 });
-window.addEventListener('keyup',e=>{const k=e.key.toLowerCase();if(k==='shift'&&me&&me.crouch)act('crouch',{v:0});if(MOVE_KEYS.includes(k))keyboardMove(k,false);if(k==='z')act('atkUp',{src:'keyboard'});if(k==='x'||k==='r')releaseHold(k);});
+window.addEventListener('keyup',e=>{if(devKey(e,false))return;const k=e.key.toLowerCase();if(k==='shift'&&me&&me.crouch)act('crouch',{v:0});if(MOVE_KEYS.includes(k))keyboardMove(k,false);if(k==='z')act('atkUp',{src:'keyboard'});if(k==='x'||k==='r')releaseHold(k);});
 // Ao perder o foco, o ataque segurado é cancelado (não dispara sozinho) e as teclas são soltas.
 window.addEventListener('blur',()=>{clearHolds();if(me&&me.combat.held&&!me.remote)cancelHold(me.combat);for(const k of Object.keys(keyMove))keyMove[k]=false;for(const k of Object.keys(touchMove))touchMove[k]=false;syncMovement();});
 
@@ -5298,7 +5302,7 @@ function netSend(o){if(net.ws&&net.ws.readyState===1){net.ws.send(JSON.stringify
 function netGame(d){return netSend({t:'g',d});}
 function startPing(){stopPing();net.pingTimer=setInterval(()=>netSend({t:'ping',c:Math.round(performance.now())}),2000);netSend({t:'ping',c:Math.round(performance.now())});}
 function stopPing(){if(net.pingTimer)clearInterval(net.pingTimer);net.pingTimer=null;}
-function saveSession(){ssSet('egb_session',JSON.stringify({url:net.ws?net.ws.url:wsURL(),room:net.room,token:net.token,t:Date.now()}));}
+function saveSession(){ssSet('egb_session',JSON.stringify({url:net.ws?net.ws.url:wsURL(),room:net.room,token:net.token,dev:net.dev?1:0,t:Date.now()}));}
 function clearSession(){ssSet('egb_session',null);}
 function onSocketClosed(was){
  if(net.room&&net.token&&!net.leaving){
@@ -5310,7 +5314,7 @@ function onSocketClosed(was){
  }else setConn('bad',was==='online'?'Desconectado do servidor':'Não foi possível conectar ao servidor');
 }
 function giveUpRoom(msg){
- net.room='';net.token='';net.retryUntil=0;clearSession();clearNotice('conn');clearNotice('peer');
+ net.room='';net.token='';net.retryUntil=0;net.dev=false;clearSession();clearNotice('conn');clearNotice('peer');
  resetToMenuState();net.role='solo';showMenu('scrMulti');setMultiErr(msg);setConn('bad','Desconectado');
 }
 const ERRORS={invalid:'Código inválido: use as 5 letras/números recebidos.',not_found:'Sala não encontrada. Confira o código.',full:'Sala cheia (5 jogadores no total, somando os controles de cada computador).',seats_full:'Não cabe mais ninguém: a sala tem no máximo 5 jogadores no total (ou não sobrou personagem livre).',
@@ -5323,7 +5327,8 @@ function onNet(m){
   case 'resumed':onResumed(m);break;
   case 'lobby':net.lobby=m;net.slot=m.you;renderLobby();break;
   case 'start':startOnline(m.players,m.mode);break;
-  case 'g':onGameMsg(m.from,m.d);break;
+  case 'g':onGameMsg(m.from,m.d,m.dev);break;
+  case 'peer_dev':if(net.role==='host'){notice('Um desenvolvedor entrou na sala (só assiste)',3);sendSnapshot();}break;
   case 'peer_left':onPeerLeft(m.slot);break;
   case 'peer_back':onPeerBack(m.slot);break;
   case 'peer_gone':onPeerGone(m.slot);break;
@@ -5333,7 +5338,7 @@ function onNet(m){
  }
 }
 function enterRoom(m){
- net.room=m.room;net.slot=m.slot;net.token=m.token;net.role='lobby';net.retryUntil=0;saveSession();
+ net.room=m.room;net.slot=m.slot;net.token=m.token;net.role='lobby';net.retryUntil=0;net.dev=!!m.dev;saveSession();
  setMultiErr('');const el=$('lobbyErr');el.textContent='';el.dataset.auto='1';showMenu('scrLobby');$('roomCode').textContent=m.room;
 }
 function onResumed(m){
@@ -5398,8 +5403,10 @@ function onPeerGone(slot){
   net.seats=net.seats.filter(x=>x.conn!==slot);refreshMe();net.joinableSent=-1;}
 }
 // ---- Anfitrião: recebe entradas do convidado e envia o estado da partida ----
-function onGameMsg(from,d){
+function onGameMsg(from,d,dev){
  if(!d||typeof d!=='object')return;
+ if(dev){if(net.role==='host'&&d.t==='dev')devExec(d);return;} // o desenvolvedor só manda comandos do painel (nunca controla personagem)
+ if(d.t==='dev')return;
  if(net.role==='host'){
   // cada mensagem diz de qual vaga é (sp); só vale se a vaga for mesmo daquele computador
   const seatOf=sp=>{if(sp!=null&&isFinite(sp))return seatConn(+sp)===from?+sp:null;const S=connSeats(from);return S.length?S[0]:from;};
@@ -5791,7 +5798,7 @@ function showMenu(scr){$('menu').classList.add('show');ui.menuOpen=true;ui.menuS
  if(scr==='scrChapters'){$('cap1Info').textContent='Zane, Guevar e o Deus dos Justos'+(chapterDone()?'  ·  CONCLUÍDO ✓':'');const b2=$('btnCap2');b2.disabled=!chapterDone();b2.querySelector('span').textContent=chapterDone()?'O Campo Laranja':'Conclua o Capítulo 1';$('btnCap2City').style.display=chapterDone()&&(lsGet('egb_c2wall')==='1'||lsGet('egb_c2gate')==='1')?'':'none';}
  if(scr==='scrMain'){$('pickLabel').textContent=ui.menuMode==='arena'?'ARENA DE TREINO · ESCOLHA SEU PERSONAGEM':'CAPÍTULO 1 · ESCOLHA SEU PERSONAGEM';if(!charList(ui.menuMode).includes(ui.selChar))ui.selChar='zane';markChars('charsMain',ui.selChar);}
  if(scr==='scrLobby'&&net.role==='lobby'&&Object.keys(LOCAL.pads).length)sendLocals();
- if(scr==='scrMulti'){const sv=lsGet('egb_server');if(sv&&!$('serverInput').value)$('serverInput').value=sv;updateConnLabels();}}
+ if(scr==='scrMulti'){$('btnJoinDev').style.display=DEV.dev?'':'none';const sv=lsGet('egb_server');if(sv&&!$('serverInput').value)$('serverInput').value=sv;updateConnLabels();}}
 function hideMenu(){$('menu').classList.remove('show');ui.menuOpen=false;try{canvas.focus({preventScroll:true});}catch(e){}}
 function setMultiErr(t){$('multiErr').textContent=t||'';}
 function setConn(kind,text){net.connKind=kind;net.connText=text;updateConnLabels();}
@@ -5842,15 +5849,16 @@ function checkCode(){
  const el=$('multiErr');el.textContent=(r.fresh?'Desbloqueado: ':'Já desbloqueado: ')+CHARS[r.k].full+(CHARS[r.k].arena?' — jogue com ele(a) na Arena de treino.':' — escolha no menu.');el.classList.add('ok-msg');
  setTimeout(()=>el.classList.remove('ok-msg'),4000);return true;
 }
-function joinRoom(){
- if(checkCode())return;
+function joinRoom(dev){
+ dev=dev===true&&DEV.dev;
+ if(!dev&&checkCode())return;
  const code=($('codeInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');$('codeInput').value=code;
  if(code.length!==5){setMultiErr(ERRORS.invalid);return;}
- setMultiErr('');netConnect(()=>netSend({t:'join',room:code,char:ui.selChar}));
+ setMultiErr('');net.wantDev=dev;netConnect(()=>netSend(dev?{t:'join',room:code,dev:1}:{t:'join',room:code,char:ui.selChar}));
 }
 function toggleReady(){const L=net.lobby;if(!L)return;const mineL=L.players.find(p=>p.slot===net.slot);netSend({t:'ready',v:!(mineL&&mineL.ready)});}
 function leaveRoom(msg){
- net.leaving=true;netSend({t:'leave'});net.room='';net.token='';net.lobby=null;net.retryUntil=0;clearSession();
+ net.leaving=true;netSend({t:'leave'});net.room='';net.token='';net.lobby=null;net.retryUntil=0;net.dev=false;clearSession();
  resetToMenuState();net.role='solo';showMenu('scrMulti');setMultiErr(msg||'');setTimeout(()=>net.leaving=false,800);
 }
 async function copyCode(){
@@ -5861,7 +5869,7 @@ async function copyCode(){
 function renderLobby(){
  const L=net.lobby;if(!L)return;$('roomCode').textContent=L.room;
  // vagas J1..J5 na ordem em que o servidor vai distribuir: computador por computador (teclado, depois controles)
- const list=L.players.slice().sort((a,b)=>a.slot-b.slot),seats=[];
+ const devs=L.players.filter(p=>p.dev),list=L.players.filter(p=>!p.dev).sort((a,b)=>a.slot-b.slot),seats=[],iDev=devs.some(p=>p.slot===L.you);
  for(const P of list){seats.push({P,char:P.char,dev:'teclado'});for(const q of P.locals||[])seats.push({P,char:q.char,dev:'controle '+q.l});}
  const n=list.length,total=seats.length,box=$('slots');$('slotsLabel').textContent='JOGADORES ('+total+'/5) · '+n+(n===1?' COMPUTADOR':' COMPUTADORES');box.textContent='';
  const nameOf=ch=>ch==='viajante'&&(DEV.montalvo||chapterDone())?'Guevar':CHARS[ch].full;
@@ -5873,18 +5881,20 @@ function renderLobby(){
   if(P){if(!P.connected){rd.textContent='RECONECTANDO…';rd.style.color='#e7c25a';}else if(P.ready){rd.textContent='PRONTO';rd.style.color='#6fd08c';}else{rd.textContent='ESCOLHENDO…';rd.style.color='#a99aa0';}}
   row.append(tag,nm,rd);box.appendChild(row);
  }
+ for(const P of devs){const row=document.createElement('div');row.className='slot dev'+(P.slot===L.you?' me':'');row.innerHTML='<span class="tag">DEV</span><span class="nm"></span><span class="rd" style="color:#9fd0ff">ASSISTINDO</span>';row.querySelector('.nm').textContent='Desenvolvedor'+(P.slot===L.you?' (você)':'')+(P.connected?'':' — reconectando…');box.appendChild(row);}
+ for(const id of['charsLobby','charsLobbyLabel','btnReady'])$(id).style.display=iDev?'none':'';
  syncLocalsFromLobby();
  if(lobbyMode()!==lobbyCardsMode)rebuildCharCards();
  $('modeStory').classList.toggle('on',lobbyMode()==='story');$('modeArena').classList.toggle('on',lobbyMode()==='arena');$('modeCap2').classList.toggle('on',lobbyMode()==='cap2');
  $('modeStory').disabled=$('modeArena').disabled=L.you!==0;$('modeCap2').disabled=L.you!==0||!chapterDone();$('modeCap2').title=chapterDone()?'':'O anfitrião precisa ter concluído o Capítulo 1';
  const mineL=list.find(p=>p.slot===L.you);
- if(mineL){markChars('charsLobby',mineL.char,list.filter(p=>p.slot!==L.you).map(p=>p.char));if(unlocked(mineL.char))ui.selChar=mineL.char;}
+ if(mineL&&!iDev){markChars('charsLobby',mineL.char,list.filter(p=>p.slot!==L.you).map(p=>p.char));if(unlocked(mineL.char))ui.selChar=mineL.char;}
  const rb=$('btnReady');rb.textContent=mineL&&mineL.ready?'PRONTO ✓ (CANCELAR)':'ESTOU PRONTO';rb.classList.toggle('on',!!(mineL&&mineL.ready));
  const bad=lobbyMode()==='story'&&seats.some(S=>!STORY_CHARS.includes(S.char)),all=n>=2&&list.every(p=>p.connected&&p.ready)&&!bad,sb=$('btnStart');
  sb.style.display=L.you===0?'':'none';sb.disabled=!all;
  const err=$('lobbyErr');
  if(!err.textContent||err.dataset.auto){err.dataset.auto='1';err.className='err ok-msg';
-  err.textContent=bad?ERRORS.story_chars:n<2?'Aguardando outro computador entrar com o código (até 5 jogadores no total; cada PC pode ligar controles).':L.you===0?(all?'Tudo pronto! Inicie a partida.':'Quando todos estiverem prontos, inicie a partida.'):(all?'Aguardando o anfitrião iniciar a partida.':'Marque "Estou pronto" quando escolher seu personagem.');}
+  err.textContent=iDev?'Modo desenvolvedor: você só assiste. Quando o anfitrião iniciar, o painel DEV aparece na partida.':bad?ERRORS.story_chars:n<2?'Aguardando outro computador entrar com o código (até 5 jogadores no total; cada PC pode ligar controles).':L.you===0?(all?'Tudo pronto! Inicie a partida.':'Quando todos estiverem prontos, inicie a partida.'):(all?'Aguardando o anfitrião iniciar a partida.':'Marque "Estou pronto" quando escolher seu personagem.');}
  updateConnLabels();
 }
 // ---- Botões ----
@@ -5902,6 +5912,7 @@ $('modeArena').addEventListener('click',()=>netSend({t:'mode',v:'arena'}));
 $('modeCap2').addEventListener('click',()=>{if(chapterDone())netSend({t:'mode',v:'cap2'});});
 $('btnMulti').addEventListener('click',()=>{showMenu('scrMulti');if(!(net.ws&&net.ws.readyState===1))setConn('',wsURL()?'Pronto para conectar':'Informe o endereço do servidor');});
 $('btnBack').addEventListener('click',()=>{showMenu('scrTitle');});
+$('btnJoinDev').addEventListener('click',()=>joinRoom(true));
 $('btnCreate').addEventListener('click',createRoom);
 $('btnJoin').addEventListener('click',joinRoom);
 $('codeInput').addEventListener('input',e=>{const v=e.target.value.replace(/[^A-Za-z0-9]/g,'').slice(0,12);if(v!==e.target.value)e.target.value=v;if(tryUnlockCode(v))checkCode();});
@@ -6758,6 +6769,242 @@ const MOCHILA_TABS={
  try{if(lsGet('egb_split')==='0')SPLIT.off=true;if(lsGet('egb_map')==='0')ui.noMap=true;}catch(e){}
  let bs='';window.bagSync=function(){const on=!ui.menuOpen&&players.length>0&&state!=='intro'&&state!=='fin',s=on+'';if(s!==bs){bs=s;bag.classList.toggle('on',on);}};
 })();
+// ===== MODO DESENVOLVEDOR =====
+// Liga pelo terminal da Ordem (comando "dev"). Com ele ligado:
+//  - no menu Multiplayer aparece "ASSISTIR COMO DESENVOLVEDOR": entra em qualquer sala (mesmo com a partida rolando),
+//    não ocupa vaga nem personagem e só assiste;
+//  - durante a partida aparece o painel DEV: pular falas e cenas, voltar, ir para qualquer parte dos capítulos,
+//    câmera livre ou seguindo qualquer jogador, curar o grupo, limpar inimigos etc.
+// Quem executa os comandos é sempre o anfitrião (ou o próprio jogo, no modo solo): o desenvolvedor só envia o pedido.
+const DEV_SECS=[
+ ['c1_corredor','Cap. 1 · Corredor'],['c1_santuario','Cap. 1 · Santuário (espíritos)'],['c1_deus','Cap. 1 · Luta: "Deus" dos Justos'],
+ ['c1_desejos','Cap. 1 · Cena dos desejos'],['c1_biblioteca','Cap. 1 · Biblioteca (ossos)'],['c1_ritual','Cap. 1 · Ritual'],
+ ['c1_estrada','Cap. 1 · Estrada de Ossos'],['c1_sino','Cap. 1 · Luta: velho do sino'],['c1_final','Cap. 1 · Final no Santuário'],
+ ['c2_abre','Cap. 2 · Abertura (cena)'],['c2_spar','Cap. 2 · Confronto com o Taka'],['c2_pausa','Cap. 2 · Pausa (cena)'],
+ ['c2_campo','Cap. 2 · Campo Laranja'],['c2_muralha','Cap. 2 · Muralha (cena)'],['c2_estrada','Cap. 2 · Caminho de Ossos'],
+ ['c2_portao','Cap. 2 · Portão (cena)'],['c2_cidade','Cap. 2 · Cidade de Elden'],['c2_castelo','Cap. 2 · Castelo (cena)'],['c2_rei','Cap. 2 · Luta: Rei de Elden']];
+const devSecName=id=>{const s=DEV_SECS.find(q=>q[0]===id);return s?s[1]:'—';};
+const DEVCAM={mode:'auto',slot:-1,x:480,y:300,z:1,keys:{w:0,a:0,s:0,d:0}};
+const devSpect=()=>!!(net.dev&&net.role==='guest');
+const devOn=()=>DEV.dev&&!ui.menuOpen&&state!=='intro'&&players.length>0&&(net.role!=='guest'||net.dev);
+// Em que parte da história o grupo está agora (funciona também no computador de quem só assiste)
+function devCurSection(){
+ if(gameMode==='cap2'){
+  if(state==='fin'&&fin&&fin.k==='cap2')return'c2_'+(fin.id==='abre'||fin.id==='pausa'||fin.id==='muralha'||fin.id==='portao'||fin.id==='castelo'?fin.id:'castelo');
+  if(room===7)return'c2_rei';if(room===8)return'c2_cidade';if(room===4)return'c2_estrada';
+  if(cap2&&cap2.ph==='spar')return'c2_spar';return'c2_campo';}
+ if(gameMode==='arena')return'';
+ if(state==='fin'&&fin)return'c1_final';
+ if(room===1)return'c1_corredor';
+ if(room===2){if(state==='scene')return'c1_desejos';if(stage==='finale')return'c1_final';if(stage==='boss2'||(boss&&boss.kind==='deus'))return'c1_deus';return'c1_santuario';}
+ if(room===3)return state==='rite'?'c1_ritual':'c1_biblioteca';
+ if(room===4)return(boss&&boss.kind==='sino')||(road&&road.boss===2)||state==='cine'?'c1_sino':'c1_estrada';
+ return'';
+}
+// ---------- execução (anfitrião / solo) ----------
+function devHumans(){
+ if(online())return net.seats.map(s=>({ctrl:s.slot,char:s.char}));
+ const h=players.filter(p=>p.ctrl>=0).map(p=>({ctrl:p.ctrl,char:p.char}));
+ for(const c of pendingCtrl)if(!h.some(x=>x.ctrl===c))h.push({ctrl:c,char:'deus'});
+ if(!h.length)h.push({ctrl:0,char:ui.selChar||'zane'});return h;
+}
+function devStory(){
+ if(gameMode==='story'&&!cap2)return;
+ const hs=devHumans();if(typeof cap2Reset==='function')cap2Reset();gameMode='story';arena=null;buildParty(hs);applyCharUI();
+}
+function devCap2(){const keep=net.role!=='solo';startCap2(devHumans(),keep);}
+function devJump(id){
+ ui.pause=false;ui.pausedBy=-1;ui.camIntro=null;cam.snap=1;
+ if(id.startsWith('c1_')){
+  devStory();
+  if(id==='c1_corredor'){checkpoint=1;reset(1);}
+  else if(id==='c1_santuario')reset(2);
+  else if(id==='c1_deus'){reset(2);enemies=[];stage='boss2';spawnDeus();}
+  else if(id==='c1_desejos'){reset(2);startScene({x:480,y:170});}
+  else if(id==='c1_biblioteca'){reset(2);finishScene();}
+  else if(id==='c1_ritual'){reset(2);finishScene();
+   for(const b of lib.bones){const sl=LIB.slots.findIndex((s,i)=>s.kind===b.kind&&!lib.bones.some(q=>q.placed&&q.slot===i));b.found=1;b.placed=1;b.slot=sl;}
+   startRite();}
+  else if(id==='c1_estrada')reset(4);
+  else if(id==='c1_sino')reset(5);
+  else if(id==='c1_final'){reset(4);startFinale();}
+ }else{
+  devCap2();
+  if(id==='c2_spar')startSpar();
+  else if(id==='c2_pausa')cap2Cine('pausa');
+  else if(id==='c2_campo')startWalk();
+  else if(id==='c2_muralha'){startWalk();cap2Cine('muralha');}
+  else if(id==='c2_estrada'){startWalk();enterRoad('campo');}
+  else if(id==='c2_portao'){startWalk();enterRoad('campo');cap2Cine('portao');}
+  else if(id==='c2_cidade'){startWalk();enterCity('pedra');}
+  else if(id==='c2_castelo'){startWalk();enterCity('pedra');cap2Cine('castelo');}
+  else if(id==='c2_rei')startKingFight();
+ }
+ ui.roomCard=0;
+}
+// Fala por fala (cenas, diálogos e conversas andando). dir = +1 avança, -1 volta.
+function devLine(dir){
+ if(state==='fin'&&fin){
+  if(dir>0){if(fin.k==='end')fin={k:'post',i:0,t:0,T:0,cd:.5};else finAdvance();}
+  else{fin.i=Math.max(0,fin.i-1);fin.t=0;fin.cd=.2;if(fin.k==='cap2'){C2ST.i=-1;C2ST.id='';}}
+  return true;}
+ if(state==='scene'&&scene){const st=sceneStep();
+  if(dir>0){if(st.choice&&!scene.w[st.choice])applyWish(st.choice,WISHES[st.choice][Math.floor(Math.random()*3)].k);else if(st.ev==='faint')finishScene();else{scene.i++;scene.t=0;scene.cd=.2;}}
+  else{scene.i=Math.max(0,scene.i-1);scene.t=0;scene.cd=.2;}
+  return true;}
+ if(state==='cine'&&road&&road.cine){if(dir>0){const o=road.old;spawnSino(o?o.x:2400,o?o.y:roadY(2400),o?o.face:-1);}return dir>0;}
+ if(state==='rite'&&lib&&lib.rite){if(dir>0)finishRite();return dir>0;}
+ if(lib&&lib.talk){const T=lib.talk;if(dir>0){T.i++;T.t=0;if(T.i>=T.lines.length)lib.talk=null;}else{T.i=Math.max(0,T.i-1);T.t=0;}return true;}
+ if(cap2&&cap2.ph==='walk'&&cap2.talk){const T=cap2.talk;if(dir<0)T.i=Math.max(-1,T.i-2);cap2.talkT=0;return true;}
+ return false;
+}
+// Pula a cena inteira (ou a conversa / o confronto em andamento)
+function devSkip(){
+ if(state==='fin'&&fin){
+  if(fin.k==='end'){fin={k:'post',i:0,t:0,T:0,cd:.5};return true;}
+  const k=fin.k,id=fin.id;let n=0;
+  while(state==='fin'&&fin&&fin.k===k&&fin.id===id&&n++<600)finAdvance();
+  return true;}
+ if(state==='scene'&&scene){finishScene();return true;}
+ if(state==='cine'||state==='rite')return devLine(1);
+ if(lib&&lib.talk){lib.talk=null;return true;}
+ if(cap2&&cap2.ph==='walk'&&cap2.talk){cap2.talk.i=(cap2.lines||WALK_TALK).length;cap2.talkT=0;return true;}
+ if(cap2&&cap2.ph==='spar'&&DUEL.on){DUEL.tension=100;return true;}
+ return false;
+}
+function devTeleport(x,y){
+ if(!bigRoom())return;const L=players.filter(p=>p.alive);
+ L.forEach((p,i)=>{const a=i/Math.max(1,L.length)*Math.PI*2,tx=clamp(x+Math.cos(a)*36,corridor.left+25,corridor.right-25),ty=clamp(y+Math.sin(a)*30,corridor.top+35,corridor.bottom-25),dx=tx-p.x,dy=ty-p.y;
+  p.x=p.rx=tx;p.y=p.ry=ty;p.push=null;p.hideIn=null;if(p.remote)fx(['nudge',p.slot,r1(dx),r1(dy)]);});
+}
+const DEV_SAY={next:'avançou a fala',prev:'voltou uma fala',skip:'pulou a cena',heal:'curou o grupo',kill:'limpou os inimigos',boss:'deixou o chefe com 10%',alarm:'desligou o alarme',tp:'trouxe o grupo'};
+function devExec(d){
+ if(!d||typeof d!=='object')return;const k=String(d.k||'');let ok=true,msg=DEV_SAY[k]||'';
+ if(k==='next')ok=devLine(1);
+ else if(k==='prev')ok=devLine(-1);
+ else if(k==='skip')ok=devSkip();
+ else if(k==='sec'||k==='secPrev'||k==='secNext'){
+  let id=String(d.a||'');
+  if(k!=='sec'){const cur=devCurSection(),i=DEV_SECS.findIndex(s=>s[0]===cur);const j=clamp((i<0?0:i)+(k==='secNext'?1:-1),0,DEV_SECS.length-1);id=DEV_SECS[j][0];}
+  if(!DEV_SECS.some(s=>s[0]===id))return;
+  devJump(id);msg='foi para '+devSecName(id);}
+ else if(k==='heal'){for(const p of players){p.alive=true;p.hp=p.maxHp;p.wake=0;p.stag=0;}}
+ else if(k==='kill'){enemies=enemies.filter(e=>e.duel||e.kind==='guarda');enemyShots=[];hazards=[];}
+ else if(k==='boss'){if(boss)boss.hp=Math.max(1,Math.round(boss.maxHp*.1));else ok=false;}
+ else if(k==='alarm'){if(city){city.alarm=0;city.alarmT=0;for(const e of enemies)if(e.kind==='guarda'&&e.g&&e.g.st!=='down'){e.g.st='return';e.g.aw=0;}}else ok=false;}
+ else if(k==='pause'){if(playing()){togglePause(-1);msg=ui.pause?'pausou':'despausou';}else ok=false;}
+ else if(k==='tp'){if(isFinite(d.x)&&isFinite(d.y))devTeleport(+d.x,+d.y);else ok=false;}
+ else return;
+ if(!ok)return;
+ const t='Desenvolvedor '+msg;notice(t,2,'dev');if(net.role==='host'){fx(['N',t,2]);sendSnapshot();}
+}
+// Pedido do painel: o anfitrião/solo executa direto; quem assiste envia para o anfitrião.
+function devCmd(k,extra){
+ const d=Object.assign({t:'dev',k},extra||{});
+ if(net.role==='guest'){if(net.dev)netGame(d);return;}
+ devExec(d);
+}
+// ---------- câmera ----------
+function devCam(dt){
+ if(!DEV.dev||DEVCAM.mode==='auto'||finCam()||state==='intro')return false;
+ let tx,ty;
+ if(DEVCAM.mode==='seat'){const p=playerBySlot(DEVCAM.slot);if(!p){DEVCAM.mode='auto';devPanelSync(true);return false;}tx=p.rx!=null?p.rx:p.x;ty=p.ry!=null?p.ry:p.y;}
+ else{const K=DEVCAM.keys,sp=620/cam.z*dt;DEVCAM.x+=(K.d-K.a)*sp;DEVCAM.y+=(K.s-K.w)*sp;DEVCAM.x=clamp(DEVCAM.x,0,WORLD.w);DEVCAM.y=clamp(DEVCAM.y,0,WORLD.h);tx=DEVCAM.x;ty=DEVCAM.y;}
+ const z=bigRoom()?DEVCAM.z:Math.max(1,DEVCAM.z);
+ if(cam.snap){cam.snap=0;cam.x=tx;cam.y=ty;cam.z=z;}
+ else{const r=DEVCAM.mode==='free'?1:Math.min(1,dt*6);cam.z+=(z-cam.z)*Math.min(1,dt*5);cam.x+=(tx-cam.x)*r;cam.y+=(ty-cam.y)*r;}
+ clampCam();if(DEVCAM.mode==='free'){DEVCAM.x=cam.x;DEVCAM.y=cam.y;}
+ return true;
+}
+function devCamMode(m,slot){
+ if(m==='free'){DEVCAM.x=cam.x;DEVCAM.y=cam.y;}
+ DEVCAM.mode=m;if(slot!=null)DEVCAM.slot=slot;if(m==='auto')DEVCAM.z=1;devPanelSync(true);
+}
+// ---------- teclado de quem só assiste ----------
+const DEV_MOVE={w:'w',arrowup:'w',a:'a',arrowleft:'a',s:'s',arrowdown:'s',d:'d',arrowright:'d'};
+function devKey(e,down){
+ if(!devSpect()||ui.menuOpen)return false;
+ const k=e.key.toLowerCase();
+ if(DEV_MOVE[k]){e.preventDefault();DEVCAM.keys[DEV_MOVE[k]]=down?1:0;if(down&&DEVCAM.mode!=='free')devCamMode('free');return true;}
+ if(!down||e.repeat)return true;
+ if(k==='n'||k==='z'||k==='enter'||k===' '){e.preventDefault();devCmd('next');}
+ else if(k==='b'||k==='backspace'){e.preventDefault();devCmd('prev');}
+ else if(k==='k')devCmd('skip');
+ else if(k==='pagedown'||k===']'){e.preventDefault();devCmd('secNext');}
+ else if(k==='pageup'||k==='['){e.preventDefault();devCmd('secPrev');}
+ else if(k==='0')devCamMode('auto');
+ else if(k==='l')devCamMode('free');
+ else if(k>='1'&&k<='5'){const p=players.slice().sort((a,b)=>a.slot-b.slot)[+k-1];if(p)devCamMode('seat',p.slot);}
+ else if(k==='+'||k==='=')DEVCAM.z=clamp(DEVCAM.z+.1,.4,1.6);
+ else if(k==='-'||k==='_')DEVCAM.z=clamp(DEVCAM.z-.1,.4,1.6);
+ else if(k==='h')devPanel.classList.toggle('min');
+ else if(k==='escape')devCmd('pause');
+ return true;
+}
+// ---------- painel ----------
+let devPanel=null,devLast='',devSelCur='';
+(function(){
+ const css=document.createElement('style');css.textContent=`
+#devPanel{display:none;position:fixed;left:max(8px,env(safe-area-inset-left));bottom:max(8px,env(safe-area-inset-bottom));z-index:45;width:min(380px,calc(100vw - 16px));max-height:min(70vh,520px);overflow:auto;
+ background:linear-gradient(180deg,#2a1219f2,#150b10f2);border:1px solid #b8924a;border-radius:9px;box-shadow:0 6px 24px #000a,inset 0 0 0 1px #4a2a33;color:#f0e4df;font:12px system-ui;padding:8px 10px}
+#devPanel.on{display:block}#devPanel.touch{left:auto;right:max(8px,env(safe-area-inset-right));bottom:auto;top:calc(max(6px,env(safe-area-inset-top)) + 46px);max-height:calc(100vh - 70px)}#devPanel.min{width:auto;padding:5px 8px}#devPanel.min .dvBody{display:none}
+#devPanel .dvHead{display:flex;align-items:center;gap:8px}#devPanel .dvHead b{font:bold 13px Georgia;color:#ffd36b;letter-spacing:.08em}
+#devPanel .dvHead span{flex:1;color:#cdb9a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#devPanel .dvSt{margin:6px 0 4px;color:#e9d6b8;font-style:italic;line-height:1.35}
+#devPanel .dvRow{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin:5px 0}#devPanel .dvRow>i{width:54px;color:#b8924a;font-style:normal;font-weight:bold;font-size:11px;letter-spacing:.05em}
+#devPanel button{background:#1d1218;border:1px solid #6b4f5c;color:#f0e4df;border-radius:6px;padding:6px 8px;min-height:30px;cursor:pointer;font:bold 11px system-ui}
+#devPanel button:hover{border-color:#ffd36b}#devPanel button.on{border-color:#ffd36b;color:#ffd36b;background:#2c1a14}
+#devPanel select{flex:1;min-width:150px;background:#1d1218;color:#f0e4df;border:1px solid #6b4f5c;border-radius:6px;padding:5px;min-height:30px;font:12px system-ui}
+#devPanel .dvKeys{color:#8f7f87;font-size:10.5px;margin-top:6px;line-height:1.4}`;document.head.appendChild(css);
+ const el=document.createElement('div');el.id='devPanel';
+ el.innerHTML='<div class="dvHead"><b>DEV</b><span id="dvWhere"></span><button type="button" id="dvMin" title="Recolher (H)">—</button></div><div class="dvBody">'
+  +'<div class="dvSt" id="dvSt"></div>'
+  +'<div class="dvRow"><i>CENA</i><button type="button" data-c="prev">◀ Fala</button><button type="button" data-c="next">Fala ▶</button><button type="button" data-c="skip">⏭ Pular cena</button></div>'
+  +'<div class="dvRow"><i>PARTE</i><button type="button" data-c="secPrev">⏮</button><select id="dvSec"></select><button type="button" data-c="secNext">⏭</button></div>'
+  +'<div class="dvRow"><i></i><button type="button" id="dvGo">Ir para a parte escolhida</button><button type="button" id="dvRe">↺ Reiniciar parte</button></div>'
+  +'<div class="dvRow"><i>CÂMERA</i><span id="dvCams" style="display:contents"></span></div>'
+  +'<div class="dvRow"><i></i><button type="button" data-z="-1">− zoom</button><button type="button" data-z="1">+ zoom</button><button type="button" id="dvTp" title="Leva todos os personagens para o centro da câmera">Trazer grupo p/ câmera</button></div>'
+  +'<div class="dvRow"><i>GRUPO</i><button type="button" data-c="heal">Curar</button><button type="button" data-c="kill">Limpar inimigos</button><button type="button" data-c="boss">Chefe 10%</button><button type="button" data-c="alarm">Alarme off</button><button type="button" data-c="pause">Pausar</button></div>'
+  +'<div class="dvKeys" id="dvKeys"></div></div>';
+ document.body.appendChild(el);devPanel=el;
+ const sel=el.querySelector('#dvSec');let grp=null;
+ for(const[id,name]of DEV_SECS){const cap=id.startsWith('c1')?'Capítulo 1':'Capítulo 2';if(!grp||grp.label!==cap){grp=document.createElement('optgroup');grp.label=cap;sel.appendChild(grp);}const o=document.createElement('option');o.value=id;o.textContent=name.replace(/^Cap\. \d · /,'');grp.appendChild(o);}
+ el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.c)devCmd(b.dataset.c);
+  else if(b.dataset.z)DEVCAM.z=clamp(DEVCAM.z+(+b.dataset.z)*.15,.4,1.6);
+  else if(b.dataset.cam)devCamMode(b.dataset.cam,b.dataset.slot!=null?+b.dataset.slot:null);
+  else if(b.id==='dvMin')el.classList.toggle('min');
+  else if(b.id==='dvGo')devCmd('sec',{a:sel.value});
+  else if(b.id==='dvRe'){const c=devCurSection();if(c)devCmd('sec',{a:c});}
+  else if(b.id==='dvTp')devCmd('tp',{x:Math.round(cam.x),y:Math.round(cam.y)});
+  b.blur();});
+ // arrastar a tela move a câmera livre (celular)
+ let drag=null;
+ canvas.addEventListener('pointerdown',e=>{if(!devSpect()||DEVCAM.mode!=='free')return;drag={x:e.clientX,y:e.clientY};});
+ window.addEventListener('pointermove',e=>{if(!drag)return;const s=canvas.clientWidth/W*cam.z;DEVCAM.x-=(e.clientX-drag.x)/s;DEVCAM.y-=(e.clientY-drag.y)/s;drag={x:e.clientX,y:e.clientY};});
+ window.addEventListener('pointerup',()=>{drag=null;});
+})();
+function devPanelSync(force){
+ const on=devOn();devPanel.classList.toggle('on',on);if(!on){devPanel._shown=0;return;}
+ const tch=typeof TOUCH!=='undefined'&&!!TOUCH;devPanel.classList.toggle('touch',tch);
+ if(!devPanel._shown){devPanel._shown=1;if(tch&&me)devPanel.classList.add('min');} // no celular, jogando: começa recolhido (não cobre o joystick)
+ const cur=devCurSection(),sel=devPanel.querySelector('#dvSec');
+ let line='';
+ try{if(state==='fin'&&fin&&fin.k!=='end'){const L=finScript();line=' · fala '+Math.min(fin.i+1,L.length)+'/'+L.length;}else if(state==='scene'&&scene)line=' · fala '+(scene.i+1)+'/'+SCENE.length;else if(lib&&lib.talk)line=' · conversa '+(lib.talk.i+1)+'/'+lib.talk.lines.length;else if(cap2&&cap2.ph==='walk'&&cap2.talk)line=' · conversa '+Math.max(0,cap2.talk.i+1)+'/'+(cap2.lines||WALK_TALK).length;}catch(e){}
+ const st=(gameMode==='arena'?'Arena de treino':devSecName(cur))+line+(ui.pause?' · PAUSADO':'')+(city&&city.alarm&&room===8?' · ALARME':'')+(boss?' · chefe '+Math.round(boss.hp/boss.maxHp*100)+'%':'');
+ const camKey=DEVCAM.mode+DEVCAM.slot+'|'+players.map(p=>p.slot+p.char+p.ctrl).join(',');
+ const key=st+'|'+camKey+'|'+(net.room||'')+'|'+gameMode;
+ if(!force&&key===devLast)return;devLast=key;
+ devPanel.querySelector('#dvWhere').textContent=(net.room?'sala '+net.room+' · ':'')+(devSpect()?'assistindo':net.role==='host'?'anfitrião':'solo');
+ devPanel.querySelector('#dvSt').textContent=st;devPanel.querySelector('button[data-c=pause]').textContent=ui.pause?'Despausar':'Pausar';
+ if(cur&&cur!==devSelCur){devSelCur=cur;if(document.activeElement!==sel)sel.value=cur;} // só acompanha quando a parte muda (não desfaz a escolha de quem vai clicar em "Ir")
+ const cams=devPanel.querySelector('#dvCams');cams.textContent='';
+ const mk=(label,m,slot,on)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.dataset.cam=m;if(slot!=null)b.dataset.slot=slot;if(on)b.className='on';cams.appendChild(b);};
+ mk('Auto','auto',null,DEVCAM.mode==='auto');
+ for(const p of players.slice().sort((a,b)=>a.slot-b.slot))mk((p.ctrl>=0?seatLabel(p.ctrl):'IA')+' '+fullName(p.char).split(' ')[0],'seat',p.slot,DEVCAM.mode==='seat'&&DEVCAM.slot===p.slot);
+ mk('Livre','free',null,DEVCAM.mode==='free');
+ devPanel.querySelector('#dvKeys').textContent=devSpect()?'Teclas: N/Enter fala · B volta · K pula cena · [ ] parte · 0 auto · 1-5 seguir · L/WASD câmera livre · +/− zoom · H recolhe':'Os comandos valem para todos da sala. A câmera DEV só muda a sua tela.';
+}
 // ===== ORDEM: terminal secreto (cheat codes de desenvolvedor) =====
 // No menu, digitar "ordem" liga uma TV de tubo com o terminal interno da Ordem. No celular: segurar o dedo
 // no título AURORA TRI (ou 7 toques rápidos) abre um campo para digitar o código. "postumo" continua valendo.
@@ -6832,15 +7079,17 @@ const DOSSIE={
  maquina:['MÁQUINA PÓSTUMA','Estrutura dourada, compartimento de vidro.','Função: [ARQUIVO SELADO PELA ORDEM]','Estado: adormecida, à espera de quem a conhece.'],
  felipe:['FELIPE','Agente da Ordem. Situação: [NÃO INFORMADO]','Deixou um bilhete para SHIRO sobre este terminal.','Anotação: alguém precisa ensinar o Felipe a mandar mensagem.']};
 const CMDS={
- ajuda:()=>typeFast([['COMANDOS DISPONÍVEIS','phi'],'  shiro       restaura o registro de Taka','  clarice     restaura o registro de Clarice','  justos      restaura o registro do Deus dos Justos','  tudo        restaura todos os registros','  montalvo    Guevar sem capuz e com o próprio nome (liga/desliga)','  roger       segue o sinal até a faculdade (cena final)','  arquivos    memórias guardadas pela Ordem','  itens       o que tem na sua mochila','  analisar X  laudo da Ordem sobre um item coletado','  elden     abre o Capítulo 2 (marca o Capítulo 1 como concluído)','  rei         vai direto para a batalha contra o Rei de Elden (como Taka)','  imortal     dano zero para você nas partidas solo (liga/desliga)','  status      estado dos registros','  dossie X    ficha (zane, guevar, deus, taka, clarice, roger, maquina, felipe)','  data        consulta o relógio do arquivo','  limpar      limpa a tela','  sair        desliga o terminal']),
+ ajuda:()=>typeFast([['COMANDOS DISPONÍVEIS','phi'],'  shiro       restaura o registro de Taka','  clarice     restaura o registro de Clarice','  justos      restaura o registro do Deus dos Justos','  tudo        restaura todos os registros','  montalvo    Guevar sem capuz e com o próprio nome (liga/desliga)','  roger       segue o sinal até a faculdade (cena final)','  arquivos    memórias guardadas pela Ordem','  itens       o que tem na sua mochila','  analisar X  laudo da Ordem sobre um item coletado','  elden       abre o Capítulo 2 (marca o Capítulo 1 como concluído)','  rei         vai direto para a batalha contra o Rei de Elden (como Taka)','  imortal     dano zero para você nas partidas solo (liga/desliga)','  dev         modo desenvolvedor: painel para pular/voltar e assistir salas online (liga/desliga)','  status      estado dos registros','  dossie X    ficha (zane, guevar, deus, taka, clarice, roger, maquina, felipe)','  data        consulta o relógio do arquivo','  limpar      limpa a tela','  sair        desliga o terminal']),
  shiro:()=>type(unlockLine('taka','SHIRO')),
  clarice:()=>type(unlockLine('clarice','CLARICE')),
  justos:()=>type(unlockLine('deus','JUSTOS')),
  tudo:()=>type([...unlockLine('taka','SHIRO'),...unlockLine('clarice','CLARICE'),...unlockLine('deus','JUSTOS')]),
  montalvo:()=>{DEV.montalvo=!DEV.montalvo;lsSet('egb_dev_montalvo',DEV.montalvo?'1':'0');rebuildCharCards();
   type(DEV.montalvo?[['>> identidade MONTALVO confirmada.','pok'],'>> o Viajante agora aparece sem capuz e é chamado de Guevar desde o início.',['   (os diálogos continuam os mesmos)','pdim']]:[['>> identidade MONTALVO arquivada. O Viajante volta a usar o capuz.','pdim']]);},
+ dev:()=>{DEV.dev=!DEV.dev;lsSet('egb_dev_dev',DEV.dev?'1':'0');if(!DEV.dev&&typeof DEVCAM!=='undefined')DEVCAM.mode='auto';
+  type(DEV.dev?[['>> MODO DESENVOLVEDOR ativo.','pok'],'>> durante as partidas aparece o painel DEV (pular falas e cenas, voltar, ir para qualquer parte, câmera livre).','>> no Multiplayer: digite o código e use "ASSISTIR COMO DESENVOLVEDOR" para entrar em qualquer sala só assistindo.',['   (os comandos do painel valem para a sala inteira; quem executa é o anfitrião)','pdim']]:[['>> modo desenvolvedor desligado.','pdim']]);},
  imortal:()=>{DEV.imortal=!DEV.imortal;lsSet('egb_dev_imortal',DEV.imortal?'1':'0');type([[DEV.imortal?'>> protocolo de preservação ATIVO: você não recebe dano no solo.':'>> protocolo de preservação desligado.',DEV.imortal?'pok':'pdim']]);},
- status:()=>{const u=k=>unlocked(k)?'liberado':'bloqueado';type([['ESTADO DOS REGISTROS','phi'],'  Taka ............ '+u('taka'),'  Clarice ......... '+u('clarice'),'  Deus dos Justos . '+u('deus'),'  Montalvo ........ '+yes(DEV.montalvo),'  Imortal ......... '+yes(DEV.imortal),'  Capítulo 1 ...... '+(chapterDone()?'concluído':'em andamento')]);},
+ status:()=>{const u=k=>unlocked(k)?'liberado':'bloqueado';type([['ESTADO DOS REGISTROS','phi'],'  Taka ............ '+u('taka'),'  Clarice ......... '+u('clarice'),'  Deus dos Justos . '+u('deus'),'  Montalvo ........ '+yes(DEV.montalvo),'  Imortal ......... '+yes(DEV.imortal),'  Desenvolvedor ... '+yes(DEV.dev),'  Capítulo 1 ...... '+(chapterDone()?'concluído':'em andamento')]);},
  dossie:(a)=>{const k=(a||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/^viajante$/,'guevar').replace(/^maquina.*/,'maquina');const D=DOSSIE[k];
   if(!D){type([['uso: dossie zane | guevar | deus | taka | clarice | roger | maquina | felipe','pdim']]);return;}type([['== FICHA: '+D[0]+' ==','phi'],...D.slice(1).map(s=>'  '+s)]);},
  data:()=>{const d=new Date(),p=n=>String(n).padStart(2,'0');type(['Relógio local ..... '+p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear(),['Relógio do arquivo  ██/██/2█7█ — divergência detectada','perr'],['O Jorge pediu para ninguém mexer nisso.','pdim']]);},
@@ -6857,7 +7106,7 @@ const CMDS={
  evans:()=>type([['>> reproduzindo MEM-02 // PROTÓTIPO P-0','phi'],['   aviso: arquivo parcialmente censurado','perr',300]],()=>closePostumo(()=>startSecret('evans'))),
  roger:()=>type([['>> rastreando sinal: ROGER','phi'],['   triangulando........ São Paulo',null,120],['   ponto exato......... faculdade, subsolo',null,120],['>> abrindo transmissão.','pok',380]],()=>{closePostumo(()=>startRogerCut());}),
 };
-const ALIAS={help:'ajuda','?':'ajuda',cls:'limpar',clear:'limpar',exit:'sair',quit:'sair',dossiê:'dossie',ficha:'dossie',taka:'shiro',deus:'justos',guevar:'montalvo',mochila:'itens',alstrea:'elden',inventario:'itens',analise:'analisar',laudo:'analisar'};
+const ALIAS={desenvolvedor:'dev',developer:'dev',help:'ajuda','?':'ajuda',cls:'limpar',clear:'limpar',exit:'sair',quit:'sair',dossiê:'dossie',ficha:'dossie',taka:'shiro',deus:'justos',guevar:'montalvo',mochila:'itens',alstrea:'elden',inventario:'itens',analise:'analisar',laudo:'analisar'};
 function run(v){
  if(!v){showPrompt();return;}
  const [c0,...rest]=v.split(/\s+/),c=(ALIAS[c0.toLowerCase()]||c0.toLowerCase()),f=CMDS[c];
@@ -6888,7 +7137,7 @@ tube.addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#pmChip
 // celular: atalhos para os comandos mais usados (dá para digitar também)
 const chips=root.querySelector('#pmChips');
 function renderChips(){const on=typeof TOUCH!=='undefined'&&TOUCH;chips.classList.toggle('on',on);root.classList.toggle('chips',on);if(!on||chips.childElementCount)return;
- for(const c of['ajuda','status','itens','arquivos','dossie','tudo','limpar','sair']){const b=document.createElement('button');b.type='button';b.textContent=c.toUpperCase();
+ for(const c of['ajuda','status','dev','itens','arquivos','dossie','tudo','limpar','sair']){const b=document.createElement('button');b.type='button';b.textContent=c.toUpperCase();
   b.addEventListener('click',()=>{if(busy&&c!=='sair')return;later(()=>{line(PROMPT+c,'pdim');run(c);});});chips.appendChild(b);}}
 // gatilhos: digitar "ordem" no menu (o antigo "postumo" também vale)
 let buf='';
@@ -6923,7 +7172,7 @@ showMenu('scrTitle');
 (function tryResume(){
  let s=null;try{s=JSON.parse(ssGet('egb_session')||'null');}catch(e){}
  if(!s||!s.room||!s.token||Date.now()-s.t>60000||!s.url)return;
- net.room=s.room;net.token=s.token;net.urlOverride=s.url;net.retryUntil=performance.now()+RECONNECT_MS;
+ net.room=s.room;net.token=s.token;net.dev=!!s.dev;net.urlOverride=s.url;net.retryUntil=performance.now()+RECONNECT_MS;
  showMenu('scrMulti');setConn('wait','Reconectando à sala '+s.room+'…');
  netConnect(()=>netSend({t:'resume',room:s.room,token:s.token,hasGame:false}));
 })();

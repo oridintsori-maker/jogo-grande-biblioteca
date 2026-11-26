@@ -1,0 +1,34 @@
+MÚSICAS DO JOGO — coloque aqui os arquivos .mp3 com estes nomes exatos
+(também aceita .ogg ou .m4a quando o jogo roda pelo servidor).
+
+O jogo troca a música sozinho conforme o lugar, com transição suave.
+Se faltar o arquivo de um ambiente, aquele trecho fica em silêncio
+(os chefes usam "chefe.mp3" se não houver o específico; créditos e pós-créditos usam "final.mp3").
+
+Arquivo            Quando toca                          Sugestão (OST Ordem Paranormal: Calamidade)
+menu.mp3           menus e tela inicial                 Ordo Realitas
+corredor.mp3       sala 1 (corredor, zumbis)            Investigador Paranormal
+santuario.mp3      Santuário dos Justos                 Escriptas
+biblioteca.mp3     Grande Biblioteca                    Obscurité
+estrada.mp3        trilha de ossos                      Não Abra a Porta
+cena.mp3           cutscenes de diálogo                 Serenidade   (sem ela, continua a música do lugar)
+chefe.mp3          qualquer chefe                       Batalha
+chefe_sino.mp3     luta do sino                         O Diabo
+chefe_deus.mp3     luta contra o Deus dos Justos        Transcender
+arena.mp3          Arena de treino                      Coliseu
+final.mp3          diálogo final no Santuário           O Diário De Deus
+creditos.mp3       créditos                             Amigos
+pos_creditos.mp3   cena pós-créditos                    Relíquias Da Calamidade
+vitoria.mp3        tela de vitória                      Agentes Da Ordem
+derrota.mp3        tela de derrota                      Desastre
+cap2_campo.mp3     Capítulo 2: campo e cenas no campo    Agentes Da Ordem (sem ela, usa corredor.mp3)
+cap2_luta.mp3      Capítulo 2: confronto contra o Taka   Pugna        (sem ela, usa chefe.mp3)
+cap2_mente.mp3     Capítulo 2: Mergulho Mental           Obscurité    (sem ela, usa cena.mp3)
+cap2_castelo.mp3   Capítulo 2: castelo e sala do trono   Não Abra a Porta (sem ela, usa cena.mp3)
+cap2_rei.mp3       Capítulo 2: o Rei de Alstrea surge    O Diabo      (sem ela, usa chefe.mp3)
+segredo_nila.mp3   cena secreta "nila" (terminal)       Serenidade   (sem ela, usa cena.mp3)
+segredo_evans.mp3  cena secreta "evans" (terminal)      Escriptas    (sem ela, usa cena.mp3)
+
+As sugestões foram escolhidas pelo nome e pelo clima de cada faixa; troque à vontade.
+Os arquivos de música não vêm com o jogo: use os seus.
+No Render, a pasta "musica" precisa ir junto com o server.js e o index.html.
